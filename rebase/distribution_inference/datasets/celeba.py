@@ -65,8 +65,10 @@ class DatasetInformation(base.DatasetInformation):
 
         if not cpu:
             model = model.cuda()
+            print("Using GPU. Model: ", model)
         if parallel:
             model = nn.DataParallel(model)
+            print("using nnDataParallel(model)")
         return model
 
     def _get_pre_processor(self):
@@ -391,7 +393,8 @@ class CelebaWrapper(base.CustomDatasetWrapper):
                  skip_data: bool = False,
                  label_noise: float = 0,
                  epoch: bool = False,
-                 shuffle_defense: ShuffleDefense = None,):
+                 shuffle_defense: ShuffleDefense = None,
+                ):
         super().__init__(data_config,
                          skip_data=skip_data,
                          label_noise=label_noise,
@@ -402,6 +405,7 @@ class CelebaWrapper(base.CustomDatasetWrapper):
         # if self.classify not in self.info_object.preserve_properties:
         #     raise ValueError("Specified label not available for images")
 
+        # transform used to augment images
         train_transforms = [
             transforms.ToTensor(),
             transforms.Normalize((0.5), (0.5))
@@ -411,6 +415,7 @@ class CelebaWrapper(base.CustomDatasetWrapper):
             transforms.Normalize((0.5), (0.5))
         ])
 
+        
         if self.augment:
             augment_transforms = [
                 transforms.RandomAffine(degrees=20,

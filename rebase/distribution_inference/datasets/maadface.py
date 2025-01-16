@@ -17,7 +17,7 @@ import distribution_inference.datasets.utils as utils
 import distribution_inference.models.contrastive as models_contrastive
 from distribution_inference.config import TrainConfig, DatasetConfig
 from distribution_inference.training.utils import load_model
-from distribution_inference.utils import model_compile_supported
+# from distribution_inference.utils import model_compile_supported
 import pickle
 
 

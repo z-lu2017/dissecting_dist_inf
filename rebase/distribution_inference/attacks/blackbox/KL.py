@@ -24,6 +24,7 @@ class KLAttack(Attack):
                 PredictionsOnOneDistribution(preds_vic.preds_on_distr_1.preds_property_1[i],preds_vic.preds_on_distr_1.preds_property_2[i]),
                 PredictionsOnOneDistribution(preds_vic.preds_on_distr_2.preds_property_1[i],preds_vic.preds_on_distr_2.preds_property_2[i])
             ) for i in range(len(preds_vic.preds_on_distr_2.preds_property_1))]
+            breakpoint()
             accs,preds=[],[]
             for x in preds_v:
                 result = self.attack_not_epoch(preds_adv,x,ground_truth,calc_acc,not_using_logits)
@@ -39,8 +40,40 @@ class KLAttack(Attack):
                not_using_logits: bool = False):
         
         self.not_using_logits = not_using_logits
-
         # Get values using data from first distribution
+        """
+            distr_x = model train on (1 = vic dist, 2 = current prop value dist)
+            pred_propery_x = dist predicted on (1 = vic dist, 2 = current prop value dist)
+
+            ... 
+            creates sets
+            1. adv(org) pred on org
+            2. adv(org) pred on new
+            3. vic(org) pred on org
+            4. vic(org) pred on new
+
+            1. adv(new) pred on org
+            2. adv(new) pred on new
+            3. vic(new) pred on org
+            4. vic(new) pred on new
+            ...
+            computes kl for preds of 
+            - 1&3
+            - 2&3 
+            - 1&4
+            - 2&4
+            ...
+            then does pairwise comp for 
+                1&3 - 2&3
+                1&4 - 2&4
+                # each of these are [# vic models, unique combinations of adv models * config proportion val]
+            negative scores indicate that the first component has closer dist to target than second component
+            expect negative for 1&3 - 2&3 and postiive for 1&4 - 2&4
+            ... 
+            concatenate all predictions and normalize them to [0,1]
+            expect negative values to be less than 0.5 and make comp with ground truth labels for accuracy score
+
+        """
         preds_1_first, preds_1_second = self._get_kl_preds(
             preds_adv.preds_on_distr_1.preds_property_1,
             preds_adv.preds_on_distr_1.preds_property_2,
@@ -52,26 +85,32 @@ class KLAttack(Attack):
             preds_adv.preds_on_distr_2.preds_property_2,
             preds_vic.preds_on_distr_2.preds_property_1,
             preds_vic.preds_on_distr_2.preds_property_2)
-
         # Combine data
         preds_first = np.concatenate((preds_1_first, preds_2_first), 1)
         preds_second = np.concatenate((preds_1_second, preds_2_second), 1)
         preds = np.concatenate((preds_first, preds_second))
-
+        breakpoint()
         if not self.config.kl_voting:
             preds -= np.min(preds, 0)
             preds /= np.max(preds, 0)
-
+        
         preds = np.mean(preds, 1)        
         gt = np.concatenate((np.zeros(preds_first.shape[0]), np.ones(preds_second.shape[0])))
         acc = 100 * np.mean((preds >= 0.5) == gt)
-
+        print("ACCURACY", acc)
         # No concept of "choice" (are we in the Matrix :P)
         choice_information = (None, None)
         return [(acc, preds), (None, None), choice_information]
 
     def _get_kl_preds(self, ka, kb, kc1, kc2):
-        # Apply sigmoid to ones that are not already sigmoided
+        """
+        ka & kb are adv preds, kc1 and kc2 are vic preds
+        - take predictions and compute softmax/sigmoid to normalize them and create prob dist
+        - if self.config.log_odds_order then the log odds is computed to exagerate differences in the probability distributions
+            and the top half of data samples with large differences in values are used to compute KL
+        - get all unique pairs of model comps (n choose 2)
+        """
+        # Apply sigmoid to predictions that are not already sigmoided logits
         ka_, kb_ = ka, kb
         kc1_, kc2_ = kc1, kc2
         if not self.not_using_logits:
@@ -103,17 +142,20 @@ class KLAttack(Attack):
 
         # Compare the KL divergence between the two distributions
         # For both sets of victim models
-        KL_vals_1_a = np.array([KL(ka_, x,
-            multi_class=self.config.multi_class) for x in kc1_])
+        KL_vals_1_a = np.array(
+            [KL(ka_, x, multi_class=self.config.multi_class) for x in kc1_])
         self._check(KL_vals_1_a)
+
         KL_vals_1_b = np.array(
             [KL(kb_, x, multi_class=self.config.multi_class) for x in kc1_])
         self._check(KL_vals_1_b)
-        KL_vals_2_a = np.array([KL(ka_, x,
-            multi_class=self.config.multi_class) for x in kc2_])
+
+        KL_vals_2_a = np.array(
+            [KL(ka_, x,multi_class=self.config.multi_class) for x in kc2_])
         self._check(KL_vals_2_a)
-        KL_vals_2_b = np.array([KL(kb_, x,
-            multi_class=self.config.multi_class) for x in kc2_])
+
+        KL_vals_2_b = np.array(
+            [KL(kb_, x, multi_class=self.config.multi_class) for x in kc2_])
         self._check(KL_vals_2_b)
 
         preds_first = self._pairwise_compare(
@@ -147,8 +189,8 @@ class KLAttack(Attack):
                calc_acc: Callable = None,
                epochwise_version: bool = False):
         
-            Perform Threshold-Test and Loss-Test attacks using
-            given accuracies of models.
+        Perform Threshold-Test and Loss-Test attacks using
+        given accuracies of models.
         
         #assert calc_acc is not None, "Must provide function to compute accuracy"
         assert not (
@@ -187,12 +229,11 @@ class KLAttack(Attack):
         # No concept of "choice" (are we in the Matrix :P)
         choice_information = (None, None)
         return [(acc, preds), (None, None), choice_information]
-    """
+"""
 
 def sigmoid(x):
     exp = np.exp(x)
     return exp / (1 + exp)
-
 
 def softmax(x):
     # Numericaly stable softmax

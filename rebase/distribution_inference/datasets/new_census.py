@@ -269,7 +269,7 @@ class _CensusIncome:
                                tot_samples=subsample_size,
                                n_tries=100,
                                class_col='income',
-                               verbose=False,
+                               verbose=True,
                                get_indices=True)
 
 
@@ -345,7 +345,9 @@ class CensusWrapper(base.CustomDatasetWrapper):
         self._train_ids_before = self.ds_train.ids
         self._val_ids_before = self.ds_val.ids
         return super().get_loaders(batch_size, shuffle=shuffle,
-                                   eval_shuffle=eval_shuffle,)
+                                   eval_shuffle=eval_shuffle,
+                                   prefetch_factor=None
+                                   )
 
     def load_model(self, path: str, on_cpu: bool = False, model_arch: str = None) -> nn.Module:
         info_object = self.info_object

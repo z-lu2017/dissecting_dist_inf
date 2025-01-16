@@ -326,6 +326,9 @@ def get_vic_adv_preds_on_distr_seed(
     return (adv_preds, vic_preds, ground_truth)
 
 
+"""
+Might be an error here ... says that ds_obj belongs to vic, but passing in adv in blackbox
+"""
 def get_vic_adv_preds_on_distr(
         models_vic: Tuple[List[nn.Module], List[nn.Module]],
         models_adv: Tuple[List[nn.Module], List[nn.Module]],
@@ -353,7 +356,6 @@ def get_vic_adv_preds_on_distr(
     else:
         loader_for_shape, loader_vic = ds_obj.get_loaders(batch_size=batch_size)
         adv_datum_shape = next(iter(loader_for_shape))[0].shape[1:]
-
         if make_processed_version:
             # Make version of DS for victim that processes data
             # before passing on
@@ -364,7 +366,6 @@ def get_vic_adv_preds_on_distr(
             loader_adv = loader_vic
 
         # TODO: Use preload logic here to speed things even more
-
     # Get predictions for first set of models
     preds_vic_1, preds_adv_1, ground_truth, not_using_logits = _get_preds_for_vic_and_adv(
         models_vic[0], models_adv[0],
@@ -379,6 +380,7 @@ def get_vic_adv_preds_on_distr(
         epochwise_version=epochwise_version,
         preload=preload,
         multi_class=multi_class)
+
     adv_preds = PredictionsOnOneDistribution(
         preds_property_1=preds_adv_1,
         preds_property_2=preds_adv_2

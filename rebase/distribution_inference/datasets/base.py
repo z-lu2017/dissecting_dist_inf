@@ -40,7 +40,7 @@ class DatasetInformation:
             data_path : path to dataset
             models_path: path to models
             properties: list of properties supported for experiments
-            values(dict): list of values for each property
+            values(dict): list of values (ratios) for each property (ex. sex, height, etc.)
         """
         self.base_data_dir = os.path.join(
             Constants.base_data_directory, data_path)
@@ -305,6 +305,7 @@ class CustomDatasetWrapper:
         if custom_models_path:
             folder_path = custom_models_path
         else:
+            # self.get_save_dir is implemented uniquely for each dataset wrapper
             folder_path = self.get_save_dir(
                 train_config, model_arch=model_arch)
         model_paths = os.listdir(folder_path)
@@ -338,6 +339,8 @@ class CustomDatasetWrapper:
             shuffle=shuffle,
             model_arch=model_arch,
             custom_models_path=custom_models_path)
+        print(folder_path)
+        print(model_paths)
         i = 0
         n_failed = []
         models = []

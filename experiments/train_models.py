@@ -23,15 +23,25 @@ if __name__ == "__main__":
     parser.add_argument(
         "--load_config", help="Specify config file", type=Path)
     args, remaining_argv = parser.parse_known_args()
+
     # Attempt to extract as much information from config file as you can
     config = TrainConfig.load(args.load_config, drop_extra_fields=False)
+
     # Also give user the option to provide config values over CLI
     parser = ArgumentParser(parents=[parser])
     parser.add_arguments(TrainConfig, dest="train_config", default=config)
+    parser.add_argument(
+        "--gpu", help="Specify GPU ID to use, leave blank for CPU", type=str, default=None
+    )
     args = parser.parse_args(remaining_argv)
     train_config = args.train_config
+    
+    # Set CUDA environment if GPU is specified
     if args.gpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    
     # Extract configuration information from config file
     dp_config = None
     train_config: TrainConfig = train_config
@@ -48,8 +58,7 @@ if __name__ == "__main__":
 
     # Print out arguments
     flash_utils(train_config)
-
-
+    
     # Get dataset wrapper
     ds_wrapper_class = get_dataset_wrapper(data_config.name)
 
@@ -168,7 +177,7 @@ if __name__ == "__main__":
                 indices = (train_ids, test_ids)
 
             # Save model
-            save_model(model, save_path, indices=indices)
+            save_model(model, save_path)#, indices=indices)
             # exit(0)
 
             # Save logger

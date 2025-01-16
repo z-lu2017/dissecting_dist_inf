@@ -64,6 +64,10 @@ if __name__ == "__main__":
     data_config_adv_1, data_config_vic_1 = get_dfs_for_victim_and_adv(
         data_config)
     
+    # creates celeb dataset wrapper class
+        # uses base class initiliazation to set self.ratio=data_config.value
+        # ratio value = train config value specified in attack config
+            # value is the same for both the vic and adv 1
     ds_vic_1 = ds_wrapper_class(
         data_config_vic_1,
         skip_data=True,
@@ -73,6 +77,15 @@ if __name__ == "__main__":
     train_adv_config = get_train_config_for_adv(train_config, attack_config)
 
     def single_evaluation(models_1_path=None, models_2_paths=None):
+        """
+        At this point we already have the ds configs for the victim and adv
+        for the property ratio that we specify in the train_config portion of the
+        attack config. This is the ratio the victim model was training on.
+
+        This is also the value that we use for the adv_1 and which we expect to 
+        produce predictions similar to the vic_1 model
+        """
+
         # Load victim models for first value
         models_vic_1 = ds_vic_1.get_models(
             train_config,
@@ -87,10 +100,28 @@ if __name__ == "__main__":
 
         # For each value (of property) asked to experiment with
         for prop_value in attack_config.values:
+            """
+            We are going to test the performance for every propery value
+            that we specify having in the attack config. This means we need 
+            adv models trained on each of these ratios.
+
+            We get the adv and victim models for each of these ratios. 
+            
+            TODO: Why do we need to get the victim ratio for these a well? Where 
+            and why do we use it? 
+            """
+
+            """
+            Taking the same data configuration, but replacing the value with the prop
+            value of interest and making adv/vic splits
+            """
             data_config_adv_2, data_config_vic_2 = get_dfs_for_victim_and_adv(
                 data_config, prop_value=prop_value)
 
             # Create new DS object for both and victim (for other ratio)
+            """
+            now have dataset configuration for both adv and victims
+            """
             ds_vic_2 = ds_wrapper_class(
                 data_config_vic_2, skip_data=True,
                 label_noise=train_config.label_noise,
@@ -98,8 +129,17 @@ if __name__ == "__main__":
             ds_adv_2 = ds_wrapper_class(data_config_adv_2)
 
             # Load victim models for other value
+            """
+            getting models for the ratio of interest for vic model
+            passing in train_config, but not using that prop ratio
+
+            TODO: 
+                why do we need to get victim models here for ratio?????
+                Only do it once a oppoed to the adv models since we are subsampling
+                    from a bunch I think? 
+            """
             models_vic_2 = ds_vic_2.get_models(
-                train_config,
+                train_config, 
                 n_models=attack_config.num_victim_models,
                 on_cpu=attack_config.on_cpu,
                 shuffle=False,
@@ -108,9 +148,11 @@ if __name__ == "__main__":
                 custom_models_path=models_2_paths[i] if models_2_paths else None)
             if type(models_vic_2) == tuple:
                 models_vic_2 = models_vic_2[0]
-
             for t in range(attack_config.tries):
                 print("{}: trial {}".format(prop_value, t))
+                """
+                This should be the adv models with the vic model prop ratio
+                """
                 models_adv_1 = ds_adv_1.get_models(
                     train_adv_config,
                     n_models=bb_attack_config.num_adv_models,
@@ -129,35 +171,61 @@ if __name__ == "__main__":
                     models_adv_2 = models_adv_2[0]
 
                 # Get victim and adv predictions on loaders for first ratio
+                """
+                property values for models
+                    vic_1: value in data_config of attack_config
+                    adv_1: value in data_config of attack_config
+                    vic_2: cur property ratio from loop
+                    adv_2: cur property ratio from loop
+                """
+
+                """
+                adv preds uses the same loader 
+                as victim in "get_vic_adv_preds_on_distr (attacks_blackbox_utils). This dataloader
+                is used for every single set of models (vic1, adv1, vic2, adv2) unless otherwise
+                specified. Ground truths are the same unless we shuffle data
+                """
+                # preds_adv_on_1: adv (trained on vic dist & diff dist)
+                # preds_vic_on_1: vic (trained on vic dist & diff dist)
+                # both prediciton are on victim dist
                 preds_adv_on_1, preds_vic_on_1, ground_truth_1, not_using_logits = get_vic_adv_preds_on_distr(
                     models_vic=(models_vic_1, models_vic_2),
                     models_adv=(models_adv_1, models_adv_2),
-                    ds_obj=ds_adv_1,
+                    ds_obj=ds_adv_1, # victim model distribution
                     batch_size=bb_attack_config.batch_size,
                     epochwise_version=attack_config.train_config.save_every_epoch,
                     preload=bb_attack_config.preload,
                     multi_class=bb_attack_config.multi_class,
                     make_processed_version=attack_config.adv_processed_variant
                 )
-                # Get victim and adv predictions on loaders for second ratio
+                # preds_adv_on_2: adv (trained on vic dist & diff dist)
+                # preds_vic_on_2: vic (trained on vic dist & diff dist)
+                # both prediciton are on diff dist from loop
                 preds_adv_on_2, preds_vic_on_2, ground_truth_2, _ = get_vic_adv_preds_on_distr(
                     models_vic=(models_vic_1, models_vic_2),
                     models_adv=(models_adv_1, models_adv_2),
-                    ds_obj=ds_adv_2,
+                    ds_obj=ds_adv_2, # diff loop dist
                     batch_size=bb_attack_config.batch_size,
                     epochwise_version=attack_config.train_config.save_every_epoch,
                     preload=bb_attack_config.preload,
                     multi_class=bb_attack_config.multi_class,
                     make_processed_version=attack_config.adv_processed_variant
                 )
-                # Wrap predictions to be used by the attack
+
+                """
+                Each preds_<type>_on_<dist> contains 2 sets of predictions. 
+                The first is the property 1 (original in training) and the second
+                is property 2 (current loop property value)
+
+                These 2 sets of prediction are each [#models, #predictions] shape
+                """
                 preds_adv = PredictionsOnDistributions(
-                    preds_on_distr_1=preds_adv_on_1,
-                    preds_on_distr_2=preds_adv_on_2
+                    preds_on_distr_1=preds_adv_on_1, # adv(org), adv(new prop) on adv(org)
+                    preds_on_distr_2=preds_adv_on_2 # adv(org), adv(new prop) on adv(new prop)
                 )
                 preds_vic = PredictionsOnDistributions(
-                    preds_on_distr_1=preds_vic_on_1,
-                    preds_on_distr_2=preds_vic_on_2
+                    preds_on_distr_1=preds_vic_on_1, # vic(org), vic(new propr) on adv(org)
+                    preds_on_distr_2=preds_vic_on_2 # vic(org), vic(new propr) on adv(new prop)
                 )
 
                 # TODO: Need a better (and more modular way) to handle
@@ -167,7 +235,6 @@ if __name__ == "__main__":
                 for attack_type in bb_attack_config.attack_type:
                     # Create attacker object
                     attacker_obj = get_attack(attack_type)(bb_attack_config)
-
                     # Launch attack
                     result = attacker_obj.attack(
                         preds_adv, preds_vic,
