@@ -13,9 +13,14 @@ Folder structure:
 - `training`: Training models (and some of the meta-classifiers)
 - `visualize`: Generating graphs
 
-## Installing the package
+## Setting up your enviroment
 
-Run `pip install -e .` to install the package.
+### Virtual Enviroment
+The easiest way to setup your virtual enviroment is use the requirements file, not the environment.yml. If package version issues arise, install torch/torchvision directly from conda as described on their homepage (https://pytorch.org/get-started/locally/) and install other dependencies using the packages listed in requirements.txt. Using some 2.x version of Pytorch and 2.x version of numpy should be fine.
+
+### Installing the package
+
+Run `pip install -e .` to install the package using in "editable" mode via "setup.py".
 
 All experiments now use configuration files. Most of the main code- training, testing, attacking models, is now part of a package and is shared between all the datasets. This reduces code redundancy and lowers the chances of introducing bugs when adding new datasets or making edits to existing algorithms.
 

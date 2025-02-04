@@ -4,7 +4,7 @@ from tqdm import tqdm
 import pandas as pd
 import torch as ch
 
-from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface
+from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface, wind_turbines
 
 DATASET_INFO_MAPPING = {
     "new_census": new_census.DatasetInformation,
@@ -14,6 +14,7 @@ DATASET_INFO_MAPPING = {
     "texas": texas.DatasetInformation,
     "arxiv": arxiv.DatasetInformation,
     "maadface": maadface.DatasetInformation,
+    "wind_turbines": wind_turbines.DatasetInformation
 }
 
 DATASET_WRAPPER_MAPPING = {
@@ -24,6 +25,7 @@ DATASET_WRAPPER_MAPPING = {
     "texas": texas.TexasWrapper,
     "arxiv": arxiv.ArxivWrapper,
     "maadface": maadface.MaadFaceWrapper,
+    "wind_turbines": wind_turbines.WindTurbineWrapper
 }
 
 
@@ -127,7 +129,6 @@ def heuristic(df, condition, ratio: float,
             pckd = np.random.permutation(np.concatenate([zero_ids, one_ids]))[:tot_samples]
             pckd = np.sort(pckd)
             pckd_df = pckd_df.iloc[pckd]
-
         vals.append(condition(pckd_df).mean())
         pckds.append(pckd_df)
         indices.append(pckd_ids[pckd])
@@ -141,6 +142,7 @@ def heuristic(df, condition, ratio: float,
     # Pick the one closest to desired ratio
     picked_df = pckds[np.argmin(vals)]
     picked_indices = indices[np.argmin(vals)]
+    # breakpoint()
     if get_indices:
         return picked_df.reset_index(drop=True), picked_indices
     return picked_df.reset_index(drop=True)

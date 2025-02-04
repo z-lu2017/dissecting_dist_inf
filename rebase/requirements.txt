@@ -3,11 +3,13 @@ git+https://github.com/iamgroot42/cleverhans
 git+https://github.com/iamgroot42/opacus
 git+https://github.com/iamgroot42/robustness
 git+https://github.com/iamgroot42/facenet-pytorch
-torch==1.10.2
-torchvision==0.11.3
-torchaudio==0.10.2
-scikit-learn==1.0.2
-scipy==1.8.0
+torch>=2.0.0
+numpy>=2.0.0
+torchdata==0.6.0
+torchvision
+torchaudio
+scikit-learn
+scipy
 tqdm
 ogb
 pandas
@@ -15,3 +17,5 @@ colorama
 seaborn
 jsonargparse
 fairlearn
+dgl
+pydantic

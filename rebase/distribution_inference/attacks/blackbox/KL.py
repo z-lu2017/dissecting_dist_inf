@@ -24,7 +24,6 @@ class KLAttack(Attack):
                 PredictionsOnOneDistribution(preds_vic.preds_on_distr_1.preds_property_1[i],preds_vic.preds_on_distr_1.preds_property_2[i]),
                 PredictionsOnOneDistribution(preds_vic.preds_on_distr_2.preds_property_1[i],preds_vic.preds_on_distr_2.preds_property_2[i])
             ) for i in range(len(preds_vic.preds_on_distr_2.preds_property_1))]
-            breakpoint()
             accs,preds=[],[]
             for x in preds_v:
                 result = self.attack_not_epoch(preds_adv,x,ground_truth,calc_acc,not_using_logits)
@@ -86,21 +85,29 @@ class KLAttack(Attack):
             preds_vic.preds_on_distr_2.preds_property_1,
             preds_vic.preds_on_distr_2.preds_property_2)
         # Combine data
-        preds_first = np.concatenate((preds_1_first, preds_2_first), 1)
-        preds_second = np.concatenate((preds_1_second, preds_2_second), 1)
+        preds_first = np.concatenate((preds_1_first, preds_2_first), 1) #should all be negative
+        preds_second = np.concatenate((preds_1_second, preds_2_second), 1) #should all be positive
         preds = np.concatenate((preds_first, preds_second))
-        breakpoint()
         if not self.config.kl_voting:
             preds -= np.min(preds, 0)
             preds /= np.max(preds, 0)
+
+        # print("My Accuracy")
+        # acc_preds = preds.flatten()
+        # gt = np.concatenate((np.zeros(preds_first.shape[1]), np.ones(preds_second.shape[1])))
+        # acc = 100 * np.mean((acc_preds >= 0.5) == gt)
+        # print(f"Accuracy: {acc}")
         
-        preds = np.mean(preds, 1)        
+        preds = np.mean(preds, 1)   
+        print(preds)     
         gt = np.concatenate((np.zeros(preds_first.shape[0]), np.ones(preds_second.shape[0])))
-        acc = 100 * np.mean((preds >= 0.5) == gt)
-        print("ACCURACY", acc)
+        decision = 100 * np.mean((preds >= 0.5) == gt)
+
+        print(f"Decision Accuracy: {decision}")
+        # breakpoint()
         # No concept of "choice" (are we in the Matrix :P)
         choice_information = (None, None)
-        return [(acc, preds), (None, None), choice_information]
+        return [(decision, preds), (None, None), choice_information]
 
     def _get_kl_preds(self, ka, kb, kc1, kc2):
         """
@@ -142,6 +149,10 @@ class KLAttack(Attack):
 
         # Compare the KL divergence between the two distributions
         # For both sets of victim models
+        # Treats the adv distribution as the reference distribution sum(ka_(x)*log(ka_(x)/kc1_(x)))
+            # distribution is the 25000 data points ... have 5 sets of these to compare
+            # each data point is a distribution itself, but a kl divergence score is computed for each one of these seperately
+            # (at least in the binary case) and then concatenated together
         KL_vals_1_a = np.array(
             [KL(ka_, x, multi_class=self.config.multi_class) for x in kc1_])
         self._check(KL_vals_1_a)
@@ -172,6 +183,9 @@ class KLAttack(Attack):
             raise ValueError("Invalid values found!")
 
     def _pairwise_compare(self, x, y, xx, yy):
+        """
+        Computes every single combinatation of comparisons before selecting subset
+        """
         x_ = np.expand_dims(x, 2)
         y_ = np.expand_dims(y, 2)
         y_ = np.transpose(y_, (0, 2, 1))
@@ -254,4 +268,10 @@ def KL(x, y, multi_class: bool = False):
         x__, y__ = 1 - x_, 1 - y_
         first_term = x_ * (np.log(x_) - np.log(y_))
         second_term = x__ * (np.log(x__) - np.log(y__))
+    # temp = first_term+second_term
+    # print(temp)
+    # print(temp.shape)
+    # temp2 = np.mean(first_term + second_term, 1)
+    # print(temp2)
+    # print(temp2.shape)
     return np.mean(first_term + second_term, 1)

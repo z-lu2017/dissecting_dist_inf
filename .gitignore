@@ -28,3 +28,15 @@ resnet18_cifar/*
 vgg16_cifar/*
 implems/workspace.code-workspace
 implems/.ipynb_checkpoints/*
+.venv
+models/*
+openssl_fix/*
+experiments/log/*
+WF_DATA/*
+experiments/configs/*
+log/*
+slurm_results/* 
+*.csv
+*.pkl
+*.pt
+*.json

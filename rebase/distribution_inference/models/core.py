@@ -61,6 +61,53 @@ class BaseModel(nn.Module):
     def acc(self, x, y):
         return self.model.score(x, y)
 
+class LSTMModel(BaseModel):
+    def __init__(self, **args):
+        super().__init__()
+        self.model_class = LSTM
+
+        self.input_size = [145, 4]
+        self.output_size = 1
+        self.LSTM_layers = [16, 64]
+        self.LSTM_dropouts = [0.1 for _ in self.LSTM_layers]
+        self.LSTM_activations = [nn.ReLU() for _ in self.LSTM_layers]
+        self.Linear_layers = [64, 32]
+        self.Linear_dropouts = [0.1 for _ in self.Linear_layers]
+        self.Linear_activations = [nn.ReLU() for _ in self.Linear_layers]
+
+        # Training parameters
+        self.batch_size = 256
+        self.epochs = 14
+        self.lr = 0.0008
+        self.device = "cuda" if ch.cuda.is_available() else "cpu"
+        self.metric = torchmetrics.MeanSquaredError()
+
+        key_list = [
+            "batch_size", "epochs", "lr", "input_size", "output_size",
+            "LSTM_layers", "LSTM_dropouts", "LSTM_activations", "Linear_layers",
+            "Linear_dropouts", "Linear_activations", "device"
+        ]
+        for key in key_list:
+            if key in args.keys():
+                setattr(self, key, args[key])
+
+        # Model argument dictionary
+        self.model_args = {
+            "input_size": self.input_size,
+            "output_size": self.output_size,
+            "LSTM_layers": self.LSTM_layers,
+            "LSTM_dropouts": self.LSTM_dropouts,
+            "LSTM_activations": self.LSTM_activations,
+            "Linear_layers": self.Linear_layers,
+            "Linear_dropouts": self.Linear_dropouts,
+            "Linear_activations": self.Linear_activations,
+            "device": self.device,
+        }
+
+        self.model = self.model_class(**self.model_args)
+
+    def reset_model(self):
+        self.model = self.model_class(**self.model_args)
 
 class SVMClassifier(BaseModel):
     def __init__(self,

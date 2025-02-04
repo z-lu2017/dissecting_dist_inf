@@ -17,7 +17,7 @@ from distribution_inference.defenses.active.shuffle import ShuffleDefense
 import os
 
 
-EXTRA = True # False
+EXTRA = False #True
 if __name__ == "__main__":
     parser = ArgumentParser(add_help=False)
     parser.add_argument(
@@ -93,6 +93,8 @@ if __name__ == "__main__":
                           shuffle_defense=shuffle_defense,
                           label_noise=train_config.label_noise)
 
+    breakpoint()
+
     # train_ds, val_ds = ds.load_data()
     # y = []
     # for t in val_ds:
@@ -117,6 +119,7 @@ if __name__ == "__main__":
         # Get data loaders
         train_loader, val_loader = ds.get_loaders(
             batch_size=train_config.batch_size)
+
         #print(1/(len(train_loader.dataset)*train_config.batch_size))
         # print(len(val_loader.dataset))
         #exit(0)
@@ -157,6 +160,7 @@ if __name__ == "__main__":
                 "save_path_fn": ds.get_save_path},
                 shuffle_defense=shuffle_defense)
             # logger.add_result(data_config.value, vloss, vacc)
+            print(f"vloss: {vloss}, vacc: {vacc}")
 
         # If saving only the final model
         if not train_config.save_every_epoch:

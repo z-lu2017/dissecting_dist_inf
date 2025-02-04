@@ -18,6 +18,7 @@ def train(model, loaders, train_config: TrainConfig,
           input_is_list: bool = False,
           extra_options: dict = None,
           shuffle_defense: ShuffleDefense = None):
+    #breakpoint()
     if model.is_sklearn_model:
         return sklearn_train(model, loaders, train_config, extra_options)
     elif model.is_graph_model:
@@ -81,8 +82,8 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
             if not multi_class:
                 outputs = outputs[:, 0]
 
-        loss = criterion(outputs, labels.long()
-                         if multi_class else labels.float())
+        loss = criterion(outputs, labels.squeeze().long()
+                         if multi_class else labels.squeeze().float())
         loss.backward()
         optimizer.step()
         if not regression:
@@ -160,9 +161,9 @@ def validate_epoch(val_loader, model, criterion,
                     num_true_pos+=ch.logical_and(prediction,labels.view_as(prediction)).sum().item()
                     num_pred_pos+=prediction.sum().item()
                     num_actual_pos+=labels.sum().item()
-                
+            
             val_loss_specific = criterion(
-                outputs, labels.long() if multi_class else labels.float())
+                outputs, labels.squeeze().long() if multi_class else labels.squeeze().float())
             if element_wise:
                 for i in range(N):
                     val_loss.update(val_loss_specific[i].item())
