@@ -30,7 +30,6 @@ def get_and_save_edp_data():
     r_EDP_2017 = requests.get(url_EDP_2017, allow_redirects=True)
     open(r'.temp/EDP_2017.xlsx', 'wb').write(r_EDP_2017.content)
 
-
     print("Convert 2016")
     Xlsx2csv(r'.temp/EDP_2016.xlsx', outputencoding="utf-8").convert(r'.temp/EDP_2016.csv')
     print("Convert 2017")
@@ -84,7 +83,7 @@ def get_fault_logs():
     shutil.rmtree('.temp/')
 
 def create_dirs():
-    paths = [".temp", "data_normalisation", "data_prep", "EDP", "EDP_filtered", "fault_logs"]
+    paths = [".temp", "data_normalisation", "data_prep", "data_prep_faults_included", "EDP", "EDP_filtered", "EDP_filtered_faults_included", "fault_logs"]
     for path in paths:
         if not os.path.exists(path):
             os.makedirs(path)
@@ -97,7 +96,8 @@ class data_farm:
             list_turbine_name, 
             DATA_PATH, 
             FAULT_LOG_PATH,
-            rename
+            rename, 
+            include_faults = False
         ):
         self.name = name
         self.columns = cols
@@ -139,8 +139,10 @@ class data_farm:
             "Nacelle_position",
         ]
         self.out_cols = ["Power"]
-        self.PATH = r"data_prep"
+        self.include_faults = include_faults
 
+        self.PATH = r"data_prep" if not self.include_faults else r"data_prep_faults_included"
+            
         # Initializing or loading the turbine data
         if self.initialize:
             for t in self.list_turbine_name:
@@ -153,14 +155,14 @@ class data_farm:
         self.X, self.y, self.timestamps = {t : None for t in self.list_turbine_name}, {t : None for t in self.list_turbine_name}, {t : None for t in self.list_turbine_name}
 
     def initialize_data(self, t):
-        setattr(self, t, self.load_df(f"{t}.csv", rename=self.rename))
+        setattr(self, t, self.load_df(f"{t}.csv", rename=self.rename, include_faults=self.include_faults))
         assert "Timestamp" in getattr(self, t).columns, f"Need a timestamp column"
         assert "Wind_speed" in getattr(self, t).columns, f"Need a Wind_speed column"
         index = pd.to_datetime(getattr(self, t)["Timestamp"]).dt.tz_convert(None) 
         getattr(self, t).set_index(index, inplace=True)
         getattr(self, t).drop(["Timestamp"], axis=1, inplace=True)
         
-    def load_df(self, file_name, rename={}):
+    def load_df(self, file_name, rename={}, include_faults = False):
         wt_df = pd.read_csv(os.path.join(self.DATA_PATH, file_name), parse_dates=[self.time_name])
         # Data cleaning, renaming
         if len(rename) > 0:
@@ -175,23 +177,27 @@ class data_farm:
         full_range = pd.date_range(start=wt_df["Timestamp"].min(), 
                                 end=wt_df["Timestamp"].max(), 
                                 freq="10min") 
-
+        
         # Reindexing the dataframe to include the full range of timestamps
         wt_df = wt_df.set_index("Timestamp").reindex(full_range).reset_index()
         
         wt_df.rename(columns={"index": "Timestamp"}, inplace=True)
 
         wt_df = wt_df[[c for c in self.columns if c in wt_df.columns]]
+    
+        if not self.include_faults:
+            fault_df = pd.read_csv(os.path.join(self.FAULT_LOG_PATH, file_name), parse_dates=[self.time_name])
 
-        fault_df = pd.read_csv(os.path.join(self.FAULT_LOG_PATH, file_name), parse_dates=[self.time_name])
-
-        wt_df.set_index("Timestamp", inplace=True)
-        for fault_time in fault_df['Timestamp']:
-            start_time = fault_time - pd.Timedelta(weeks=2)
-            end_time = fault_time + pd.Timedelta(days=3)
-            wt_df.loc[(wt_df.index >= start_time) & (wt_df.index <= end_time), self.in_cols] = np.nan
-            wt_df.loc[(wt_df.index >= start_time) & (wt_df.index <= end_time), self.out_cols] = np.nan
-        
+            wt_df.set_index("Timestamp", inplace=True)
+            for fault_time in fault_df['Timestamp']:
+                start_time = fault_time - pd.Timedelta(weeks=2)
+                end_time = fault_time + pd.Timedelta(days=3)
+                wt_df.loc[(wt_df.index >= start_time) & (wt_df.index <= end_time), self.in_cols] = np.nan
+                wt_df.loc[(wt_df.index >= start_time) & (wt_df.index <= end_time), self.out_cols] = np.nan
+            filtered_path = os.path.join("/home/ujx4ab/ondemand/dissecting_dist_inf/WF_Data/EDP/EDP_Model_Testing/EDP_filtered", file_name)
+        else: 
+            filtered_path = os.path.join("/home/ujx4ab/ondemand/dissecting_dist_inf/WF_Data/EDP/EDP_Model_Testing/EDP_filtered_faults_included", file_name)
+            
         cols_of_interest = (['Gen_speed', 'Gen_speed_std', 'Rotor_speed', 'Rotor_speed_std', 'Power'])
         for col in cols_of_interest:
             zero_col_with_wind = (wt_df[col] == 0) & (wt_df["Wind_speed"] > 4.5)
@@ -203,10 +209,11 @@ class data_farm:
                 wt_df.loc[zero_col_with_wind, self.out_cols] = np.nan
             else:
                 print(f"No occurrences found for {col}.")
-        
+            
         wt_df.reset_index(drop=False, inplace=True)
 
-        wt_df.to_csv(os.path.join("/home/ujx4ab/ondemand/dissecting_dist_inf/WF_Data/EDP/EDP_Model_Testing/EDP_filtered", file_name))
+        wt_df.to_csv(filtered_path)
+       
         return wt_df 
      
     def save_data(self,turbine = None):
@@ -453,13 +460,12 @@ def print_distributions(df):
 if __name__ == "__main__": 
     # create_dirs()
     # get_and_save_edp_data()
-    # create_dirs()
+    create_dirs()
     # get_fault_logs()
     edp_path = os.path.abspath("EDP")
     if os.path.exists(edp_path): 
         for path in os.listdir(edp_path): 
             df = pd.read_csv(os.path.join(edp_path, path))
-
 
     print("\n\n Processing the data\n")
     # EDP
@@ -541,6 +547,7 @@ if __name__ == "__main__":
     list_names_edp = ["WT_01", "WT_06", "WT_07", "WT_11"]
     DATA_PATH_EDP = r"EDP"
     FAULT_LOG_PATH_EDP = r"fault_logs"
+    include_faults = True
 
     farm_edp = data_farm(
         name = "EDP", 
@@ -549,8 +556,8 @@ if __name__ == "__main__":
         DATA_PATH=DATA_PATH_EDP,
         FAULT_LOG_PATH = FAULT_LOG_PATH_EDP,
         rename = rename_edp, 
+        include_faults=include_faults
     )
-
 
     in_cols = [
         "Wind_speed",
@@ -580,4 +587,7 @@ if __name__ == "__main__":
 
     print("\n\n Preparing data windows\n")
     print("\nEDP")
-    farm_edp.get_window_data(in_shift=24*6, in_cols=in_cols, out_cols=out_cols, PATH = r"data_prep", RESET = True)
+    if include_faults: 
+        farm_edp.get_window_data(in_shift=24*6, in_cols=in_cols, out_cols=out_cols, PATH = r"data_prep_faults_included", RESET = True)
+    else: 
+        farm_edp.get_window_data(in_shift=24*6, in_cols=in_cols, out_cols=out_cols, PATH = r"data_prep", RESET = True)

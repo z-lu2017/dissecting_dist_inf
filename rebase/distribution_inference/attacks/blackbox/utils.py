@@ -193,7 +193,10 @@ def get_preds(loader, models: List[nn.Module],
                         prediction = model(data_points.cuda()).detach()
                         if not multi_class:
                             prediction = prediction[:, 0]
+                    breakpoint()
                     predictions_on_model.append(prediction)
+
+        breakpoint()
         predictions_on_model = ch.cat(predictions_on_model).cpu().numpy()
         predictions.append(predictions_on_model)
         # Shift model back to CPU

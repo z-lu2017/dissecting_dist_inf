@@ -53,38 +53,6 @@ class DatasetInformation(base.DatasetInformation):
             same set of experiments.
         """
         pass
-#         def cal_q(df, condition):
-#             qualify = np.nonzero((condition(df)).to_numpy())[0]
-#             notqualify = np.nonzero(np.logical_not((condition(df)).to_numpy()))[0]
-#             return len(qualify), len(notqualify)
-
-#         x = pickle.load(
-#             open(os.path.join(self.base_data_dir, 'wind_turbine_feautres.p'), 'rb'))
-#         y = pickle.load(
-#             open(os.path.join(self.base_data_dir, 'wind_turbine_labels.p'), 'rb'))
-        
-#         x = np.array(x, dtype=np.float32)
-#         y = np.array(y, dtype=np.int32)
-        
-#         X_train, X_test, y_train, y_test = train_test_split(
-#             x, y, test_size=test_ratio)
-        
-#         train = np.hstack((X_train, y_train[..., None]))
-#         test = np.hstack((X_test, y_test[..., None]))
-        
-#         pickle.dump(train, open('./train.p', "wb"))
-#         pickle.dump(test, open('./test.p', "wb"))
-
-#         dt = _WindTurbineGearboxOilTemperature()
-
-#         def bpa0(x):
-#             return x['sex'] == 1
-
-#         adv_tr, adv_te, vic_tr, vic_te = dt.train_df_adv, dt.test_df_adv, dt.train_df_victim, dt.test_df_victim
-#         print('adv train bpa_0 and bpa_other: {}'.format(cal_q(adv_tr, bpa0)))
-#         print('adv test bpa_0 and bpa_other: {}\n'.format(cal_q(adv_te, bpa0)))
-#         print('vic train bpa_0 and bpa_other: {}'.format(cal_q(vic_tr, bpa0)))
-#         print('vic test bpa_0 and bpa_other: {}\n'.format(cal_q(vic_te, bpa0)))
     
 class _WindTurbineGearboxOilTemperature:
     def __init__(self, drop_senstive_cols=False):
@@ -209,7 +177,6 @@ class _WindTurbineGearboxOilTemperature:
                 "pitch_angle_bin": (70000, 35000),
             },
         }
-
 
         if custom_limit is None:
             subsample_size = prop_wise_subsample_sizes[split][filter_prop][is_test]

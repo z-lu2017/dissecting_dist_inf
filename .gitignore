@@ -40,3 +40,6 @@ slurm_results/*
 *.pkl
 *.pt
 *.json
+*.p
+*.pth
+*.pyc

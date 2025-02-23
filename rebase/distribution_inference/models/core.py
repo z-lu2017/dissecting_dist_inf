@@ -61,53 +61,40 @@ class BaseModel(nn.Module):
     def acc(self, x, y):
         return self.model.score(x, y)
 
-class LSTMModel(BaseModel):
-    def __init__(self, **args):
-        super().__init__()
-        self.model_class = LSTM
+""" Adding LSTM model which is not graph model or sklearn model"""
+class MaskedLSTM(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, use_dropout=False, dropout_prob=0.2):
+        super().__init__(is_conv=False, transpose_features=True, is_sklearn_model=False)
+        self.hidden_size = hidden_size
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+        self.dropout = nn.Dropout(p=dropout_prob) if use_dropout else nn.Identity()
+        self.fc = nn.Linear(hidden_size, output_size)
 
-        self.input_size = [145, 4]
-        self.output_size = 1
-        self.LSTM_layers = [16, 64]
-        self.LSTM_dropouts = [0.1 for _ in self.LSTM_layers]
-        self.LSTM_activations = [nn.ReLU() for _ in self.LSTM_layers]
-        self.Linear_layers = [64, 32]
-        self.Linear_dropouts = [0.1 for _ in self.Linear_layers]
-        self.Linear_activations = [nn.ReLU() for _ in self.Linear_layers]
+        self._init_weights()
 
-        # Training parameters
-        self.batch_size = 256
-        self.epochs = 14
-        self.lr = 0.0008
-        self.device = "cuda" if ch.cuda.is_available() else "cpu"
-        self.metric = torchmetrics.MeanSquaredError()
+    def _init_weights(self):
+        for name, param in self.named_parameters():
+            if "weight" in name:
+                nn.init.xavier_normal_(param)
+            elif "bias" in name:
+                nn.init.constant_(param, 0.1)
 
-        key_list = [
-            "batch_size", "epochs", "lr", "input_size", "output_size",
-            "LSTM_layers", "LSTM_dropouts", "LSTM_activations", "Linear_layers",
-            "Linear_dropouts", "Linear_activations", "device"
-        ]
-        for key in key_list:
-            if key in args.keys():
-                setattr(self, key, args[key])
+    def forward(self, x, mask):
+        batch_size, seq_len, _ = x.size()  # Batch (batch_size, seq_length, input_size)
+        h = torch.zeros(1, batch_size, self.hidden_size).to(x.device)
+        c = torch.zeros(1, batch_size, self.hidden_size).to(x.device)
 
-        # Model argument dictionary
-        self.model_args = {
-            "input_size": self.input_size,
-            "output_size": self.output_size,
-            "LSTM_layers": self.LSTM_layers,
-            "LSTM_dropouts": self.LSTM_dropouts,
-            "LSTM_activations": self.LSTM_activations,
-            "Linear_layers": self.Linear_layers,
-            "Linear_dropouts": self.Linear_dropouts,
-            "Linear_activations": self.Linear_activations,
-            "device": self.device,
-        }
+        mask = mask.float()  
+        
+        for t in range(seq_len):
+            x_t = x[:, t, :].unsqueeze(1)
+            mask_t = mask[:, t].view(1, -1, 1)
 
-        self.model = self.model_class(**self.model_args)
+            _, (h_new, c_new) = self.lstm(x_t, (h, c))
+            h = mask_t * h_new + (1 - mask_t) * h
+            c = mask_t * c_new + (1 - mask_t) * c
 
-    def reset_model(self):
-        self.model = self.model_class(**self.model_args)
+        return torch.relu(self.fc(self.dropout(h.squeeze(0))))
 
 class SVMClassifier(BaseModel):
     def __init__(self,

@@ -132,11 +132,6 @@ if __name__ == "__main__":
             """
             getting models for the ratio of interest for vic model
             passing in train_config, but not using that prop ratio
-
-            TODO: 
-                why do we need to get victim models here for ratio?????
-                Only do it once a oppoed to the adv models since we are subsampling
-                    from a bunch I think? 
             """
             models_vic_2 = ds_vic_2.get_models(
                 train_config, 

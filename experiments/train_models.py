@@ -93,8 +93,6 @@ if __name__ == "__main__":
                           shuffle_defense=shuffle_defense,
                           label_noise=train_config.label_noise)
 
-    breakpoint()
-
     # train_ds, val_ds = ds.load_data()
     # y = []
     # for t in val_ds:

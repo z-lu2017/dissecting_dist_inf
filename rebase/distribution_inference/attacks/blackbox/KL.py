@@ -169,10 +169,13 @@ class KLAttack(Attack):
             [KL(kb_, x, multi_class=self.config.multi_class) for x in kc2_])
         self._check(KL_vals_2_b)
 
+        breakpoint()
         preds_first = self._pairwise_compare(
             KL_vals_1_a, KL_vals_1_b, xx, yy)
         preds_second = self._pairwise_compare(
             KL_vals_2_a, KL_vals_2_b, xx, yy)
+
+        breakpoint()
 
         # Compare KL values
         return preds_first, preds_second

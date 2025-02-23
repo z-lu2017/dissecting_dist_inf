@@ -11,10 +11,10 @@
         "learning_rate": 0,
         "batch_size": 0
     },
-    "tries": 5,
+    "tries": 1,
     "black_box": {
         "granularity": 0.05,
-        "num_adv_models": 50,
+        "num_adv_models": 10,
         "batch_size": 30000,
         "attack_type": [
             "KL"
@@ -25,18 +25,11 @@
         "preload": true
     },
     "values": [
-        0.0,
         0.1,
-        0.2,
-        0.3,
-        0.4,
-        0.6,
-        0.7,
-        0.8,
-        0.9,
-        1.0
+        0.5,
+        0.9
     ],
-    "num_victim_models": 10,
-    "adv_model_arch": "mlp3",
-    "victim_model_arch": "lr"
+    "num_victim_models": 2,
+    "adv_model_arch": "random_forest",
+    "victim_model_arch": "random_forest"
 }
