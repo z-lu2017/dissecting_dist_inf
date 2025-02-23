@@ -42,4 +42,4 @@ slurm_results/*
 *.json
 *.p
 *.pth
-*.pyc
+*.pyc  
