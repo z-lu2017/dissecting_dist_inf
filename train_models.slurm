@@ -9,14 +9,14 @@
 #SBATCH --gres=gpu:1                        # gpu devices per node
 #SBATCH --partition=gpu                     # partition
 #SBATCH --mem=32G                           # memory (cpu)
-#SBATCH -J "Train (new_census/race/vic/0.2/250)"
+#SBATCH -J "Train (lstm_wind_turbine/Bp_bin/victim/0.1/50)"
 #SBATCH --mail-user=ujx4ab@virginia.edu     # email address
 #SBATCH --account=uvasrg_paid               # allocation name
 #SBATCH -o slurm_results/train_models-%u-%j.out
 #SBATCH -e slurm_results/train_models-%u-%j.err
 
 # LOAD MODULES, INSERT CODE, AND RUN YOUR PROGRAMS HERE
-export DATASET="new_census"
+export DATASET="lstm_wind_turbine"
 export TRAIN_CONFIG="train_models.json"
 
 # Activate virtual environment
