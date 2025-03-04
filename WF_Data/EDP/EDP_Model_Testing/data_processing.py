@@ -152,6 +152,9 @@ class data_farm:
         else:
             self.load_data()
         
+        self.in_cols.remove('Blade_pitch')
+        self.in_cols.append('Bp_bin')
+
         self.X, self.y, self.timestamps = {t : None for t in self.list_turbine_name}, {t : None for t in self.list_turbine_name}, {t : None for t in self.list_turbine_name}
 
     def initialize_data(self, t):
@@ -161,6 +164,7 @@ class data_farm:
         index = pd.to_datetime(getattr(self, t)["Timestamp"]).dt.tz_convert(None) 
         getattr(self, t).set_index(index, inplace=True)
         getattr(self, t).drop(["Timestamp"], axis=1, inplace=True)
+
         
     def load_df(self, file_name, rename={}, include_faults = False):
         wt_df = pd.read_csv(os.path.join(self.DATA_PATH, file_name), parse_dates=[self.time_name])
@@ -200,9 +204,9 @@ class data_farm:
             
         cols_of_interest = (['Gen_speed', 'Gen_speed_std', 'Rotor_speed', 'Rotor_speed_std', 'Power'])
         for col in cols_of_interest:
-            zero_col_with_wind = (wt_df[col] == 0) & (wt_df["Wind_speed"] > 4.5)
+            zero_col_with_wind = (wt_df[col] == 0) & (wt_df["Wind_speed"] > 4.0)
             if zero_col_with_wind.any():
-                print("Timestamps where Wind is > 4.5 but", col, "is 0:")
+                print("Timestamps where Wind is > 4.0 but", col, "is 0:")
                 print(wt_df.index[zero_col_with_wind])
                 print("Setting them to nan")
                 wt_df.loc[zero_col_with_wind, self.in_cols] = np.nan
@@ -212,8 +216,11 @@ class data_farm:
             
         wt_df.reset_index(drop=False, inplace=True)
 
-        wt_df.to_csv(filtered_path)
-       
+        wt_df['Bp_bin'] = (wt_df['Blade_pitch'] < 5).astype(int)
+
+        without_blade_pitch = wt_df.drop(columns = ['Blade_pitch'])
+        without_blade_pitch.to_csv(filtered_path)
+
         return wt_df 
      
     def save_data(self,turbine = None):
@@ -313,25 +320,13 @@ class data_farm:
             self.line_cut("Wind_speed", "Power", a = 0, b= 1100, xmin = 4.2, xmax= 25)
 
         cols = self.out_cols + self.in_cols
+        cols.remove("Blade_pitch")
+        cols.append("Bp_bin")
 
         for t in self.list_turbine_name:
             setattr(self, t, getattr(self, t)[~getattr(self, t).index.duplicated()])
 
         self.drop_col([c for c in getattr(self, self.list_turbine_name[0]).columns if c not in cols])
-
-        # cols_of_interest = (['Wind_speed', 'Gen_speed', 'Gen_speed_std', 
-        #                     'Rotor_speed','Rotor_speed_std', 'Power'])
-        # # Check for nonzero wind speed but zero power, and remove such rows
-        # for t in self.list_turbine_name:
-        #     turbine_df = getattr(self, t)
-        #     print(f"before dropping {turbine_df.shape}")
-        #     zero_rows = (turbine_df["Wind_speed"] > 4.5) & (turbine_df[cols_of_interest] == 0).any(axis=1)
-        #     print(f"Turbine {t}: Rows removed: {zero_rows.sum()}")
-        #     setattr(self, t, turbine_df[~zero_rows])
-        #     print(zero_rows)
-        #     turbine_df = getattr(self, t)
-        #     print(f"after1 dropping {turbine_df.shape}")
-        
         self.time_filling(interpolation_limit = 24)
 
         # Normalization
@@ -341,7 +336,7 @@ class data_farm:
                                                              "Gen_bear_temp_avg", "Hyd_oil_temp",
                                                              "Gear_oil_temp", "Gear_bear_temp", "Nacelle_position"]])
         self.normalize_mean_std(cols=[c for c in cols if c in ["Wind_speed_std", "Gen_speed_std", "Rotor_speed_std"]])
-        self.circ_embedding(cols=[c for c in cols if c in ["Wind_rel_dir", "Nacelle_position, Blade_pitch"]])
+        self.circ_embedding(cols=[c for c in cols if c in ["Wind_rel_dir", "Nacelle_position"]])
 
         # # Don't want to drop nan value right now ... going to let model ignore those
         # for t in self.list_turbine_name:
@@ -374,6 +369,7 @@ class data_farm:
             print(f"Preparing turbine {t}")
         
             data = getattr(self,t)
+
             in_data = data[in_cols].to_numpy(copy = True)
             out_data = data[out_cols].to_numpy(copy = True)
             
@@ -568,7 +564,6 @@ if __name__ == "__main__":
         "Gen_speed_std",
         "Rotor_speed", 
         "Rotor_speed_std",
-        "Blade_pitch",
         "Blade_pitch_std",
         "Gen_phase_temp_1",
         "Gen_phase_temp_2",
@@ -582,6 +577,7 @@ if __name__ == "__main__":
         "Gear_oil_temp",
         "Gear_bear_temp", 
         "Nacelle_position",
+        "Bp_bin"
     ]
     out_cols = ["Power"]
 

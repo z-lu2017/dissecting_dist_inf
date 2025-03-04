@@ -1,17 +1,23 @@
 from distribution_inference.defenses.active.shuffle import ShuffleDefense
 from sklearn.model_selection import StratifiedShuffleSplit
 
+import sys
+import os
 import pickle
 import pandas as pd
 import numpy as np
 import os
 import torch as ch
 import torch.nn as nn
+
 from distribution_inference.config import TrainConfig, DatasetConfig
 from distribution_inference.models.core import MaskedLSTM
 import distribution_inference.datasets.base as base
 import distribution_inference.datasets.utils as utils
 from distribution_inference.training.utils import load_model
+
+# sys.path.append(os.path.dirname(os.getcwd()))
+# from WF_Data.EDP import EDP_Model_Testing
 
 class DatasetInformation(base.DatasetInformation):
     def __init__(self, epoch_wise: bool = False):
@@ -19,19 +25,19 @@ class DatasetInformation(base.DatasetInformation):
         super().__init__(name="LSTM_Wind_Turbines",
                          data_path="LSTM_WTs",
                          models_path="lstm_wind_turbines",
-                         properties=["pitch_angle_bin"], 
+                         properties=["Bp_bin"], 
                          values={"wind_turbines": ratios},
-                         supported_models=["random_forest"],
-                         property_focus={"pitch_angle_bin": 1.0},
+                         supported_models=["MaskedLSTM"],
+                         property_focus={"Bp_bin": 1.0},
                          default_model="MaskedLSTM",
                          epoch_wise=epoch_wise)
-        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
     def get_model(self, cpu: bool = True, model_arch: str = None) -> nn.Module:
+        device = "cuda" if ch.cuda.is_available() else "cpu"
         if model_arch is None or model_arch=="None":
             model_arch = self.default_model
         elif model_arch == "MaskedLSTM":
-            model = MaskedLSTM(22, 64, 1, use_dropout=False).to(DEVICE)
+            model = MaskedLSTM(22, 64, 1, use_dropout=False).to(device)
         else:
             raise NotImplementedError("Model architecture not supported")
         
@@ -39,16 +45,16 @@ class DatasetInformation(base.DatasetInformation):
             model = model.cuda()
         return model
     
-class _WindTurbineGearboxOilTemperature:
+class _WindTurbinePower:
     def __init__(self, drop_senstive_cols=False):
         self.drop_senstive_cols = drop_senstive_cols
         self.columns = [
             "Wind_speed", "Wind_speed_std", "Wind_rel_dir", "Amb_temp",
             "Gen_speed", "Gen_speed_std", "Rotor_speed", "Rotor_speed_std",
-            "Blade_pitch", "Blade_pitch_std", "Gen_phase_temp_1", "Gen_phase_temp_2",
+            "Blade_pitch_std", "Gen_phase_temp_1", "Gen_phase_temp_2",
             "Gen_phase_temp_3", "Transf_temp_p1", "Transf_temp_p2", "Transf_temp_p3",
             "Gen_bearing_temp_1", "Gen_bearing_temp_2", "Hyd_oil_temp", "Gear_oil_temp",
-            "Gear_bear_temp", "Nacelle_position", "Power"
+            "Gear_bear_temp", "Nacelle_position", "Power",  "Bp_bin"
         ]
         self.load_data(test_ratio=0.4)
     
@@ -57,49 +63,57 @@ class _WindTurbineGearboxOilTemperature:
         info_object = DatasetInformation()
         
         # Load train, test data
-        train_data = pickle.load(
-            open(os.path.join(info_object.base_data_dir, 'train.p'), 'rb'))
-        test_data = pickle.load(
-            open(os.path.join(info_object.base_data_dir, 'test.p'), 'rb'))
-        
-        self.train_df = pd.DataFrame(train_data, columns=self.columns)
-        self.test_df = pd.DataFrame(test_data, columns=self.columns)
+        train_X = np.load(os.path.join(info_object.base_data_dir, 'train_val_dataset_X.npy'), allow_pickle=True)
+        train_y = np.load(os.path.join(info_object.base_data_dir, 'train_val_dataset_y.npy'), allow_pickle=True)
+        train_masks = np.load(os.path.join(info_object.base_data_dir, 'train_val_dataset_mask.npy'), allow_pickle=True)
+        train_timestamps = np.load(os.path.join(info_object.base_data_dir, 'train_val_dataset_timestamps.npy'), allow_pickle=True)
+        train_averages = np.load(os.path.join(info_object.base_data_dir, 'train_val_dataset_binned_feature_avgs.npy'), allow_pickle=True)
+
+        test_X = np.load(os.path.join(info_object.base_data_dir, 'faults_test_dataset_X.npy'), allow_pickle=True)
+        test_y = np.load(os.path.join(info_object.base_data_dir, 'faults_test_dataset_y.npy'), allow_pickle=True)
+        test_masks = np.load(os.path.join(info_object.base_data_dir, 'faults_test_dataset_mask.npy'), allow_pickle=True)
+        test_timestamps = np.load(os.path.join(info_object.base_data_dir, 'faults_test_dataset_timestamps.npy'), allow_pickle=True)
+        test_averages = np.load(os.path.join(info_object.base_data_dir, 'faults_test_dataset_binned_feature_avgs.npy'), allow_pickle=True)
+
+        self.train_indices_df = pd.DataFrame(train_averages, columns=['Bp_bin', 'Power'])
+        self.test_indices_df = pd.DataFrame(test_averages, columns=['Bp_bin', 'Power'])
         
         # Add field to identify train/test, process together
-        self.train_df['is_train'] = 1
-        self.test_df['is_train'] = 0
-        df = pd.concat([self.train_df, self.test_df], axis=0)        
+        self.train_indices_df['is_train'] = 1
+        self.test_indices_df['is_train'] = 0
+        df = pd.concat([self.train_indices_df, self.test_indices_df], axis=0)        
 
         # Split back to train/test data
-        self.train_df, self.test_df = df[df['is_train']
-                                         == 1], df[df['is_train'] == 0]
+        self.train_df, self.test_df = df[df['is_train'] == 1], df[df['is_train'] == 0]
         self.train_df = self.train_df.drop(columns=['is_train'], axis=1)
         self.test_df = self.test_df.drop(columns=['is_train'], axis=1)
 
         def s_split(this_df, rs=random_state):
             sss = StratifiedShuffleSplit(n_splits=1,            # Only generate one train-test split 
                                          test_size=test_ratio,  # Fraction of dataset to split by
-                                         random_state=rs)       # Seed
-            # Stratification on the properties we care about for this dataset
-            # so that adv/victim split does not introduce
-            # unintended distributional shift
+                                         random_state=rs)      
             
-            splitter = sss.split(
-                this_df, this_df[["Blade_pitch", "Power"]])  # Statify based on pitch_angle and gearbox_oil_temp, so ration of each is abt the same in train/test split
-            split_1, split_2 = next(splitter)                           # generates the indices for train/test based statification
-            return this_df.iloc[split_1], this_df.iloc[split_2]         # subsets based off indices
+            splitter = sss.split(np.zeros(len(this_df)), this_df[["Bp_bin", "Power"]]) 
+            return next(splitter)                          
+            # split_1, split_2 = next(splitter)
+            # this_df.iloc[split_1], this_df.iloc[split_2]         
 
         # Create train/test splits for victim/adv
-        self.train_df_victim, self.train_df_adv = s_split(self.train_df)
-        self.test_df_victim, self.test_df_adv = s_split(self.test_df)
-                
+        train_vic_split_indices, train_adv_split_indices = s_split(self.train_df)
+        test_vic_split_indices, test_adv_split_indices = s_split(self.test_df)
+
+        self.train_X_victim, self.train_X_adv = train_X[train_vic_split_indices], train_X[train_adv_split_indices]
+        self.train_y_victim, self.train_y_adv = train_y[train_vic_split_indices], train_y[train_adv_split_indices]
+        self.test_X_victim, self.test_X_adv = train_X[test_vic_split_indices], train_X[test_adv_split_indices]
+        self.test_y_victim, self.test_y_adv = train_y[test_vic_split_indices], train_y[test_adv_split_indices]
+
     def _get_prop_label_lambda(self, filter_prop):
-        if filter_prop == "pitch_angle_bin":
-            def lambda_fn(x): return x['pitch_angle_bin'] == 1
+        if filter_prop == "Bp_bin":
+            def lambda_fn(x): return x['Bp_bin'] == 1
         else:
             raise NotImplementedError(f"Property {filter_prop} not supported")
         return lambda_fn
-    
+ 
     def get_data(self, split, prop_ratio, filter_prop,
                  custom_limit=None,
                  scale: float = 1.0,
@@ -107,8 +121,7 @@ class _WindTurbineGearboxOilTemperature:
                  indeces = None):
         lambda_fn = self._get_prop_label_lambda(filter_prop) # function to filter for prop of interest with
 
-        def prepare_one_set(TRAIN_DF, TEST_DF):
-            # Apply filter to data
+        def prepare_one_set(TRAIN_X, TRAIN_Y, TEST_X, TEST_Y):
             if indeces:
                 TRAIN_DF_ = TRAIN_DF.iloc[indeces[0]].reset_index(drop=True)
                 train_ids = None
@@ -136,28 +149,31 @@ class _WindTurbineGearboxOilTemperature:
                     label_noise*len(y_tr)), replace=False)
                 y_tr[idx, 0] = 1 - y_tr[idx, 0]
 
-            # breakpoint() to check if data has correct ratio
+            breakpoint() #to check if data has correct ratio
 
             return ((x_tr, y_tr,train_prop_labels), (x_te, y_te,test_prop_labels), cols), (train_ids, test_ids)
+        
         if split == "all":
+            # TODO: fix all case
+            print("Currently only support victim or adv model training")
             return prepare_one_set(self.train_df, self.test_df)
         if split == "victim":
-            return prepare_one_set(self.train_df_victim, self.test_df_victim)
-        return prepare_one_set(self.train_df_adv, self.test_df_adv)
+            return prepare_one_set(self.train_X_victim, self.train_y_victim, self.test_X_victim, self.test_y_victim)
+        return prepare_one_set(self.train_X_adv, self.train_y_adv, self.test_X_adv, self.test_y_adv)
     
     # Fet appropriate filter with sub-sampling according to ratio and property
-    def get_filter(self, df, filter_prop, split, ratio, is_test,
+    def get_filter(self, df_x, df_y, filter_prop, split, ratio, is_test,
                    custom_limit=None, scale: float = 1.0):
 
     
         if filter_prop == "none":
-            return df
+            return df_x, df_y
         else:
             lambda_fn = self._get_prop_label_lambda(filter_prop)
 
         prop_wise_subsample_sizes = {
-            # selected these based on same ratios as new census, but not 100%
-            # what they are for
+            # TODO: fix these numbers for new dataset size
+            # ratios similar to that in new_census (max vic val ~30% size of the dataset)
             "adv": {
                 "pitch_angle_bin": (30000, 15000),
             },
@@ -186,17 +202,17 @@ class _WindTurbineGearboxOilTemperature:
     # Return data with desired property ratios
     def get_x_y(self, P):
         # Scale X values
-        Y = P['gearbox_oil_temp'].to_numpy()
-        cols_drop = ['gearbox_oil_temp']
+        Y = P['Power'].to_numpy()
+        cols_drop = ['Power']
         if self.drop_senstive_cols:
-            cols_drop += ['pitch_angle_bin']
+            cols_drop += ['Bp_bin']
         X = P.drop(columns=cols_drop, axis=1)
         # Convert specific columns to one-hot
         cols = X.columns
         X = X.to_numpy()
         return (X.astype(float), np.expand_dims(Y, 1), cols)
 
-class WindTurbineWrapper(base.CustomDatasetWrapper):
+class LSTMWindTurbineWrapper(base.CustomDatasetWrapper):
     def __init__(self,
                  data_config: DatasetConfig,
                  skip_data: bool = False,
@@ -208,7 +224,7 @@ class WindTurbineWrapper(base.CustomDatasetWrapper):
                          label_noise=label_noise,
                          shuffle_defense=shuffle_defense)
         if not skip_data:
-            self.ds = _WindTurbineGearboxOilTemperature(drop_senstive_cols=self.drop_senstive_cols)
+            self.ds = _WindTurbinePower(drop_senstive_cols=self.drop_senstive_cols)
         self.info_object = DatasetInformation(epoch_wise=epoch)
         
     def load_data(self, custom_limit=None, indexed_data=None):
@@ -233,8 +249,8 @@ class WindTurbineWrapper(base.CustomDatasetWrapper):
                     eval_shuffle: bool = False,
                     indexed_data=None):
         train_data, val_data, _ = self.load_data(self.cwise_samples, indexed_data=indexed_data)
-        self.ds_train = WindTurbineSet(*train_data, squeeze=self.squeeze, ids = self._used_for_train)
-        self.ds_val = WindTurbineSet(*val_data, squeeze=self.squeeze, ids = self._used_for_test)
+        self.ds_train = WindTurbineDataset(*train_data, squeeze=self.squeeze, ids = self._used_for_train)
+        self.ds_val = WindTurbineDataset(*val_data, squeeze=self.squeeze, ids = self._used_for_test)
         self._train_ids_before = self.ds_train.ids
         self._val_ids_before = self.ds_val.ids
         return super().get_loaders(batch_size, shuffle=shuffle,
@@ -300,7 +316,7 @@ class WindTurbineWrapper(base.CustomDatasetWrapper):
         # print("Loading models from path", save_path)
         return save_path
     
-class WindTurbineSet(base.CustomDataset):
+class WindTurbineDataset(base.CustomDataset):
     def __init__(self, data, targets, prop_labels, squeeze=False, ids=None):
         super().__init__()
         self.data = ch.from_numpy(data).float()

@@ -18,7 +18,7 @@ class WindTurbineDataset(Dataset):
     def __init__(self, X_path=None, y_path=None, timestamps_path=None, X=None, y=None, timestamps=None):
         self.X = torch.load(X_path).float() if X is None else X  # (num_samples, seq_len, num_features)
         self.y = torch.load(y_path).float() if y is None else y  # (num_samples, 1)
-        self.timestamps = self.timestamps = self._load_pickle(timestamps_path) if timestamps is None else timestamps  # (num_samples,)
+        self.timestamps = self._load_pickle(timestamps_path) if timestamps is None else timestamps  # (num_samples,)
 
         valid_samples = ~torch.isnan(self.y).squeeze()
         self.X, self.y, self.timestamps = self.X[valid_samples], self.y[valid_samples], self.timestamps[valid_samples]
@@ -30,7 +30,7 @@ class WindTurbineDataset(Dataset):
         return self.X.size(0)
     
     def __getitem__(self, idx):
-        return self.X[idx], self.mask[idx], self.y[idx], self.timestamps[idx].timestamp()
+        return self.X[idx], self.y[idx], self.mask[idx], self.timestamps[idx].timestamp()
 
     @staticmethod
     def _load_pickle(file_path):
@@ -203,7 +203,6 @@ def plot_feature_importance(
 
 
 def get_data_loaders(dataset, train_split=0.7, val_split=0.1, batch_size=32):
-    breakpoint()
     total_size = len(dataset)
     test_size = int((1-train_split-val_split)*total_size)
     train_val_size = total_size-test_size
