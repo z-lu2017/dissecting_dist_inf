@@ -373,6 +373,9 @@ class BlackBoxAttackConfig(Serializable):
     merlin_neighbors: Optional[int] = 100
     """Number of samples for noise in merlin-based probability estimation"""
 
+    regression: Optional[bool] = False
+    "If model task is regression instead of classification"
+
 
 @dataclass
 class PermutationAttackConfig(Serializable):

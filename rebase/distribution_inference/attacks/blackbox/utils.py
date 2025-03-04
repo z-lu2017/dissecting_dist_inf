@@ -6,6 +6,8 @@ import numpy as np
 import torch as ch
 import gc
 
+from distribution_inference.datasets.lstm_wind_turbine import WindTurbineDataset
+
 from distribution_inference.attacks.blackbox.per_point import PerPointThresholdAttack
 from distribution_inference.attacks.blackbox.standard import LossAndThresholdAttack
 from distribution_inference.attacks.blackbox.core import PredictionsOnOneDistribution
@@ -136,15 +138,25 @@ def get_preds(loader, models: List[nn.Module],
     predictions = []
     ground_truth = []
     inputs = []
+
     # Accumulate all data for given loader
-    for data in loader:
-        if len(data) == 2:
-            features, labels = data
-        else:
-            features, labels, _ = data
-        ground_truth.append(labels.cpu().numpy())
-        if preload:
-            inputs.append(features.cuda())
+    if isinstance(loader.dataset, WindTurbineDataset):
+        for data in loader:
+            data_bundle, labels, _ = data
+            ground_truth.append(labels.cpu().numpy())
+            if preload: 
+                for i in data_bundle: 
+                    data_bundle[i] = data_bundle[i].to("cuda")
+                inputs.append(data_bundle)
+    else: 
+        for data in loader:
+            if len(data) == 2:
+                features, labels = data
+            else:
+                features, labels, _ = data
+            ground_truth.append(labels.cpu().numpy())
+            if preload:
+                inputs.append(features.cuda())
     ground_truth = np.concatenate(ground_truth, axis=0)
 
     # Get predictions for each model
@@ -193,10 +205,8 @@ def get_preds(loader, models: List[nn.Module],
                         prediction = model(data_points.cuda()).detach()
                         if not multi_class:
                             prediction = prediction[:, 0]
-                    breakpoint()
                     predictions_on_model.append(prediction)
 
-        breakpoint()
         predictions_on_model = ch.cat(predictions_on_model).cpu().numpy()
         predictions.append(predictions_on_model)
         # Shift model back to CPU
@@ -350,7 +360,7 @@ def get_vic_adv_preds_on_distr(
     else:
         if models_vic[0][0].is_graph_model:
             are_graph_models = True
-
+    
     if are_graph_models:
         # No concept of 'processed'
         data_ds, (_, test_idx) = ds_obj.get_loaders(batch_size=batch_size)
@@ -358,7 +368,8 @@ def get_vic_adv_preds_on_distr(
         loader_adv = loader_vic
     else:
         loader_for_shape, loader_vic = ds_obj.get_loaders(batch_size=batch_size)
-        adv_datum_shape = next(iter(loader_for_shape))[0].shape[1:]
+        # This line doesn't appear to be used at assignment ... will keep here for now
+        # adv_datum_shape = next(iter(loader_for_shape))[0].shape[1:]
         if make_processed_version:
             # Make version of DS for victim that processes data
             # before passing on

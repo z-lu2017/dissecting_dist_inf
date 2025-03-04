@@ -3,7 +3,7 @@ from typing import Tuple
 from typing import List, Callable
 
 from distribution_inference.attacks.blackbox.core import Attack, threshold_test_per_dist, PredictionsOnDistributions
-
+from sklearn.metrics import r2_score
 
 class LossAndThresholdAttack(Attack):
     def attack(self,
@@ -12,7 +12,9 @@ class LossAndThresholdAttack(Attack):
                ground_truth: Tuple[List, List] = None,
                calc_acc: Callable = None,
                epochwise_version: bool = False,
-               not_using_logits: bool = False):
+               not_using_logits: bool = False,
+               regression: bool = False):
+        
         """
             Perform Threshold-Test and Loss-Test attacks using
             given accuracies of models.
@@ -23,7 +25,23 @@ class LossAndThresholdAttack(Attack):
             self.config.multi2 and self.config.multi), "No implementation for both multi model"
         assert not (
             epochwise_version and self.config.multi2), "No implementation for both epochwise and multi model"
-        # Get accuracies on first data distribution
+        
+        if regression:
+            def calc_regression_metric(data, labels, multi_class=False):
+                n_models = data.shape[1]
+                r2_scores = np.zeros(n_models)
+                # Compute r² for each model independently
+                for i in range(n_models):
+                    y_pred = data[:, i]
+                    ss_res = np.sum((labels - y_pred) ** 2)
+                    ss_tot = np.sum((labels - np.mean(labels)) ** 2)
+                    # Avoid division by zero in case ss_tot is zero
+                    r2_scores[i] = 1 - ss_res / ss_tot if ss_tot != 0 else 0.0
+                return r2_scores
+
+            calc_acc = calc_regression_metric
+        
+        # Get accuracies on first data distribution using prediction from shadow/victim models
         adv_accs_1, victim_accs_1, acc_1 = threshold_test_per_dist(
             calc_acc,
             preds_adv.preds_on_distr_1,
@@ -55,6 +73,7 @@ class LossAndThresholdAttack(Attack):
             victim_acc_use = [x[chosen_ratio_index] for x in victim_accs_use]
         else:
             victim_acc_use = victim_accs_use[chosen_ratio_index]
+
         # Loss test
         if epochwise_version:
             basic = []
@@ -72,12 +91,14 @@ class LossAndThresholdAttack(Attack):
             else:
                 basic = self._loss_test(acc_1, acc_2)
             basic_chosen = basic[chosen_ratio_index]
+        
 
         choice_information = (chosen_distribution, chosen_ratio_index)
         return [[(victim_acc_use, basic_chosen)], [adv_accs_use[chosen_ratio_index]], choice_information]
 
     def _loss_test(self, acc_1, acc_2):
         basic = []
+        # I think the config.ratios is the data split ratios
         for r in range(len(self.config.ratios)):
             preds_1 = (acc_1[0][r, :] > acc_2[0][r, :])
             preds_2 = (acc_1[1][r, :] <= acc_2[1][r, :])

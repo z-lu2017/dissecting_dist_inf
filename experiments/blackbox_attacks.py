@@ -236,7 +236,10 @@ if __name__ == "__main__":
                         ground_truth=(ground_truth_1, ground_truth_2),
                         calc_acc=calculate_accuracies,
                         epochwise_version=attack_config.train_config.save_every_epoch,
-                        not_using_logits=not_using_logits,)
+                        not_using_logits=not_using_logits,
+                        regression = bb_attack_config.regression
+                    )
+
 
                     logger.add_results(attack_type, prop_value,
                                        result[0][0], result[1][0])

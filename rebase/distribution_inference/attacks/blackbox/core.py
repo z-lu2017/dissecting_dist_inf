@@ -145,14 +145,20 @@ def threshold_test_per_dist(calc_acc: Callable,
         else:
             pv1_use, pv2_use = pv1[:leng], pv2[:leng]
 
+        yg_use = yg_use.squeeze() 
+
         # Calculate accuracies for these points in [0,100]
         accs_1 = 100 * calc_acc(p1_use, yg_use, multi_class=multi_class)
         accs_2 = 100 * calc_acc(p2_use, yg_use, multi_class=multi_class)
 
-        # Find a threshold on these accuracies that maximizes
-        # distinguishing accuracy
+        # tracc: distinguishing accuracy using threshold 
+        # rule: 1 for ≥ theshold; 2 for ≤ threshold
         tracc, threshold, rule = find_threshold_acc(
             accs_1, accs_2, granularity=config.granularity)
+
+        # adv_accs indicates how often the theshold can distringuish between
+        # the ratio that the two adv models was trained on (assume victim can't
+        # really be better than this)
         adv_accs.append(100 * tracc)
         if epochwise_version:
             accs_victim_1 = [100 * calc_acc(pv1_use_inside, yg_use, multi_class=multi_class)
@@ -193,14 +199,13 @@ def threshold_test_per_dist(calc_acc: Callable,
 
     allaccs_1 = np.array(allaccs_1)
     allaccs_2 = np.array(allaccs_2)
-    f_accs = np.array(f_accs)
+    f_accs = np.array(f_accs) # what percent of the victim models were correctly matched
     if epochwise_version:
         allaccs_1 = np.transpose(allaccs_1, (1, 0, 2))
         allaccs_2 = np.transpose(allaccs_2, (1, 0, 2))
         f_accs = f_accs.T
 
     return np.array(adv_accs), f_accs, (allaccs_1, allaccs_2)
-
 
 def find_threshold_acc(accs_1, accs_2, granularity: float = 0.1):
     """
@@ -220,6 +225,7 @@ def find_threshold_acc(accs_1, accs_2, granularity: float = 0.1):
         # either actual accuracies, or single logit values
         combined = np.concatenate((accs_1, accs_2))
         lower, upper = np.min(combined), np.max(combined)
+
     # Want to predict first set as 0s, second set as 1s
     classes = np.concatenate(
         (np.zeros(accs_1.shape[0]), np.ones(accs_2.shape[0])))

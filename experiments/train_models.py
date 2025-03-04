@@ -118,6 +118,7 @@ if __name__ == "__main__":
         train_loader, val_loader = ds.get_loaders(
             batch_size=train_config.batch_size)
 
+
         #print(1/(len(train_loader.dataset)*train_config.batch_size))
         # print(len(val_loader.dataset))
         #exit(0)
@@ -160,27 +161,27 @@ if __name__ == "__main__":
             # logger.add_result(data_config.value, vloss, vacc)
             print(f"vloss: {vloss}, vacc: {vacc}")
 
-        # If saving only the final model
         if not train_config.save_every_epoch:
-            # If adv training, suffix is a bit different
             if misc_config and misc_config.adv_config:
-                suffix = "_%.2f_adv_%.2f.ch" % (vacc[0], vacc[1])
+                # If adv training, suffix is a bit different
+                if vacc is not None:
+                    suffix = "_%.2f_adv_%.2f.ch" % (vacc[0], vacc[1])
+                else:
+                    suffix = "_%.4f_adv_%.4f.ch" % (vloss[0], vloss[1])
             else:
-                suffix = "_%.2f.ch" % vacc
+                if vacc is not None:
+                    suffix = "_%.2f.ch" % vacc
+                else:
+                    suffix = "_%.4f.ch" % vloss
 
-            # Get path to save model
             file_name = str(i + train_config.offset) + suffix
             save_path = ds.get_save_path(train_config, file_name)
 
             indices = None
             if EXTRA:
-                # Also note which IDs were used for train, test
                 train_ids, test_ids = ds.get_used_indices()
                 indices = (train_ids, test_ids)
 
-            # Save model
-            save_model(model, save_path)#, indices=indices)
-            # exit(0)
+            save_model(model, save_path)  #, indices=indices)
 
-            # Save logger
             logger.save()

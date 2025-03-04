@@ -4,7 +4,7 @@ from tqdm import tqdm
 import pandas as pd
 import torch as ch
 
-from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface, wind_turbines
+from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface, wind_turbines, lstm_wind_turbine
 
 DATASET_INFO_MAPPING = {
     "new_census": new_census.DatasetInformation,
@@ -14,7 +14,8 @@ DATASET_INFO_MAPPING = {
     "texas": texas.DatasetInformation,
     "arxiv": arxiv.DatasetInformation,
     "maadface": maadface.DatasetInformation,
-    "wind_turbines": wind_turbines.DatasetInformation
+    "wind_turbines": wind_turbines.DatasetInformation,
+    "lstm_wind_turbine": lstm_wind_turbine.DatasetInformation
 }
 
 DATASET_WRAPPER_MAPPING = {
@@ -25,7 +26,8 @@ DATASET_WRAPPER_MAPPING = {
     "texas": texas.TexasWrapper,
     "arxiv": arxiv.ArxivWrapper,
     "maadface": maadface.MaadFaceWrapper,
-    "wind_turbines": wind_turbines.WindTurbineWrapper
+    "wind_turbines": wind_turbines.WindTurbineWrapper,
+    "lstm_wind_turbine": lstm_wind_turbine.LSTMWindTurbineWrapper,
 }
 
 

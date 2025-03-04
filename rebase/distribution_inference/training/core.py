@@ -18,7 +18,6 @@ def train(model, loaders, train_config: TrainConfig,
           input_is_list: bool = False,
           extra_options: dict = None,
           shuffle_defense: ShuffleDefense = None):
-    #breakpoint()
     if model.is_sklearn_model:
         return sklearn_train(model, loaders, train_config, extra_options)
     elif model.is_graph_model:
@@ -29,7 +28,6 @@ def train(model, loaders, train_config: TrainConfig,
     else:
         # If DP training, call appropriate function
         return train_without_dp(model, loaders, train_config, input_is_list, extra_options, shuffle_defense)
-
 
 def train_epoch(train_loader, model, criterion, optimizer, epoch,
                 verbose: bool = True,
@@ -43,10 +41,13 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
     train_loss = AverageMeter()
     if not regression:
         train_acc = AverageMeter()
-    iterator = train_loader
+    
+    # Inner progress bar (steps within an epoch)
+    inner_iterator = train_loader
     if verbose:
-        iterator = tqdm(train_loader)
-    for tuple in iterator:
+        inner_iterator = tqdm(train_loader, desc=f'Epoch {epoch}', leave=False)
+    
+    for tuple in inner_iterator:
         # Extract data
         if expect_extra:
             data, labels, prop_labels = tuple
@@ -58,34 +59,37 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
             data, labels, prop_labels = shuffle_defense.process_batch(
                 (data, labels, prop_labels))
 
-        # Support for using same code for AMC
-        if input_is_list:
+        # Move data to GPU
+        if isinstance(data, dict):
+            data = {k: v.cuda() for k, v in data.items()}
+        elif input_is_list:
             data = [x.cuda() for x in data]
         else:
             data = data.cuda()
         labels = labels.cuda()
         N = labels.size(0)
-        
+        # Forward pass
         if adv_config is None:
-            # Clear accumulated gradients
             optimizer.zero_grad()
             outputs = model(data)
             if not multi_class:
                 outputs = outputs[:, 0]
         else:
-            # Generate adversarial inputs
             adv_x = generate_adversarial_input(model, data, adv_config)
-            # Important to zero grad after above call, else model gradients
-            # get accumulated over attack too
             optimizer.zero_grad()
             outputs = model(adv_x)
             if not multi_class:
                 outputs = outputs[:, 0]
 
+        # Loss computation
         loss = criterion(outputs, labels.squeeze().long()
                          if multi_class else labels.squeeze().float())
+        
+        # Backward pass
         loss.backward()
         optimizer.step()
+        
+        # Metrics update
         if not regression:
             if multi_class:
                 prediction = outputs.argmax(dim=1)
@@ -95,16 +99,97 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
                 labels.view_as(prediction)).sum().item()/N)
         train_loss.update(loss.item())
 
+        # Update inner progress bar
         if verbose:
             if regression:
-                iterator.set_description('[Train] Epoch %d, Loss: %.5f' % (
-                    epoch, train_loss.avg))
+                inner_iterator.set_postfix(Loss=train_loss.avg)
             else:
-                iterator.set_description('[Train] Epoch %d, Loss: %.5f, Acc: %.4f' % (
-                    epoch, train_loss.avg, train_acc.avg))
+                inner_iterator.set_postfix(Loss=train_loss.avg, Acc=train_acc.avg)
+
     if regression:
         return train_loss.avg, None
     return train_loss.avg, train_acc.avg
+
+# def train_epoch(train_loader, model, criterion, optimizer, epoch,
+#                 verbose: bool = True,
+#                 adv_config: AdvTrainingConfig = None,
+#                 expect_extra: bool = True,
+#                 input_is_list: bool = False,
+#                 regression: bool = False,
+#                 multi_class: bool = False,
+#                 shuffle_defense: ShuffleDefense = None):
+#     model.train()
+#     train_loss = AverageMeter()
+#     if not regression:
+#         train_acc = AverageMeter()
+
+#     iterator = train_loader
+#     if verbose:
+#         iterator = tqdm(train_loader)
+
+#     for tuple in iterator:
+#         # Extract data
+#         if expect_extra:
+#             data, labels, prop_labels = tuple
+#         else:
+#             data, labels = tuple
+        
+#         # Use shuffle defense, as per need
+#         if shuffle_defense:
+#             data, labels, prop_labels = shuffle_defense.process_batch(
+#                 (data, labels, prop_labels))
+
+#         # Support for using same code for AMC
+#         if isinstance(data, dict):
+#             # Move all tensors in the dict to GPU
+#             data = {k: v.cuda() for k, v in data.items()}
+#         elif input_is_list:
+#             data = [x.cuda() for x in data]
+#         else:
+#             data = data.cuda()
+
+#         labels = labels.cuda()
+#         N = labels.size(0)
+        
+#         if adv_config is None:
+#             # Clear accumulated gradients
+#             optimizer.zero_grad()
+#             outputs = model(data)
+#             if not multi_class:
+#                 outputs = outputs[:, 0]
+#         else:
+#             # Generate adversarial inputs
+#             adv_x = generate_adversarial_input(model, data, adv_config)
+#             # Important to zero grad after above call, else model gradients
+#             # get accumulated over attack too
+#             optimizer.zero_grad()
+#             outputs = model(adv_x)
+#             if not multi_class:
+#                 outputs = outputs[:, 0]
+
+#         loss = criterion(outputs, labels.squeeze().long()
+#                          if multi_class else labels.squeeze().float())
+#         loss.backward()
+#         optimizer.step()
+#         if not regression:
+#             if multi_class:
+#                 prediction = outputs.argmax(dim=1)
+#             else:
+#                 prediction = (outputs >= 0)
+#             train_acc.update(prediction.eq(
+#                 labels.view_as(prediction)).sum().item()/N)
+#         train_loss.update(loss.item())
+
+#         if verbose:
+#             if regression:
+#                 iterator.set_description('[Train] Epoch %d, Loss: %.5f' % (
+#                     epoch, train_loss.avg))
+#             else:
+#                 iterator.set_description('[Train] Epoch %d, Loss: %.5f, Acc: %.4f' % (
+#                     epoch, train_loss.avg, train_acc.avg))
+#     if regression:
+#         return train_loss.avg, None
+#     return train_loss.avg, train_acc.avg
 
 
 def validate_epoch(val_loader, model, criterion,
@@ -136,10 +221,15 @@ def validate_epoch(val_loader, model, criterion,
                 data, labels, _ = tuple
             else:
                 data, labels = tuple
-            if input_is_list:
+        
+            if isinstance(data, dict):
+                # Move all tensors in the dict to GPU
+                data = {k: v.cuda() for k, v in data.items()}
+            elif input_is_list:
                 data = [x.cuda() for x in data]
             else:
                 data = data.cuda()
+
             labels = labels.cuda()
             N = labels.size(0)
 
@@ -302,6 +392,7 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
         model.parameters(),
         lr=train_config.learning_rate,
         weight_decay=train_config.weight_decay)
+
     if train_config.regression:
         criterion = nn.MSELoss()
     elif train_config.multi_class:
@@ -487,4 +578,5 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
         return best_model, (test_loss, test_acc)
     if more_metrics:
         return test_loss, test_acc, extra_metrics_te
+
     return test_loss, test_acc

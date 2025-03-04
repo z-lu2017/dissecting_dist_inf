@@ -62,8 +62,13 @@ class BaseModel(nn.Module):
         return self.model.score(x, y)
 
 """ Adding LSTM model which is not graph model or sklearn model"""
-class MaskedLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, use_dropout=False, dropout_prob=0.2):
+class MaskedLSTM(BaseModel):
+    def __init__(self, 
+                input_size=22, 
+                hidden_size=64, 
+                output_size=1, 
+                use_dropout=False, 
+                dropout_prob=0.2):
         super().__init__(is_conv=False, transpose_features=True, is_sklearn_model=False)
         self.hidden_size = hidden_size
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
@@ -79,10 +84,12 @@ class MaskedLSTM(nn.Module):
             elif "bias" in name:
                 nn.init.constant_(param, 0.1)
 
-    def forward(self, x, mask):
+    def forward(self, x_bundle):
+        x = x_bundle["features"]
+        mask = x_bundle["mask"]
         batch_size, seq_len, _ = x.size()  # Batch (batch_size, seq_length, input_size)
-        h = torch.zeros(1, batch_size, self.hidden_size).to(x.device)
-        c = torch.zeros(1, batch_size, self.hidden_size).to(x.device)
+        h = ch.zeros(1, batch_size, self.hidden_size).to(x.device)
+        c = ch.zeros(1, batch_size, self.hidden_size).to(x.device)
 
         mask = mask.float()  
         
@@ -94,7 +101,7 @@ class MaskedLSTM(nn.Module):
             h = mask_t * h_new + (1 - mask_t) * h
             c = mask_t * c_new + (1 - mask_t) * c
 
-        return torch.relu(self.fc(self.dropout(h.squeeze(0))))
+        return ch.relu(self.fc(self.dropout(h.squeeze(0))))
 
 class SVMClassifier(BaseModel):
     def __init__(self,
