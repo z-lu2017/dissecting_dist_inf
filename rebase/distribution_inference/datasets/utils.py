@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import pandas as pd
 import torch as ch
+import os
 
 from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface, wind_turbines, lstm_wind_turbine
 
@@ -144,7 +145,6 @@ def heuristic(df, condition, ratio: float,
     # Pick the one closest to desired ratio
     picked_df = pckds[np.argmin(vals)]
     picked_indices = indices[np.argmin(vals)]
-    # breakpoint()
     if get_indices:
         return picked_df.reset_index(drop=True), picked_indices
     return picked_df.reset_index(drop=True)
@@ -225,3 +225,33 @@ def collect_data(loader, expect_extra: bool = True):
     X = ch.cat(X, dim=0)
     Y = ch.cat(Y, dim=0)
     return X, Y
+
+
+def aggregate_data(data_folder_path, WTs, data_split): 
+    print(f"Aggregating data for {WTs} at {data_folder_path}")
+    
+    X = []
+    y = []
+    masks = []
+    timestamps = []
+
+    WT_folders = [folder for folder in sorted(os.listdir(data_folder_path)) if any(WT in folder for WT in WTs) and data_split in folder]
+
+    for folder in WT_folders: 
+        folder_path = os.path.join(data_folder_path, folder)
+        for file in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, file)       
+            np_array = (np.load(file_path, allow_pickle=True))
+            
+            if file == "X.npy": X.append(np_array)
+            elif file == "y.npy": y.append(np_array)
+            elif file == "mask.npy": masks.append(np_array)
+            elif file == "timestamps.npy": timestamps.append(np_array)
+            else: raise KeyError(f"No file found in {folder_path} with the name {file}")
+
+    return (
+        np.concatenate(X, axis=0), 
+        np.concatenate(y, axis=0), 
+        np.concatenate(masks, axis=0), 
+        np.concatenate(timestamps, axis=0)
+        )

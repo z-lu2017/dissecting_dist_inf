@@ -136,6 +136,7 @@ class _CensusIncome:
         lambda_fn = self._get_prop_label_lambda(filter_prop)
 
         def prepare_one_set(TRAIN_DF, TEST_DF):
+            breakpoint()
             # Apply filter to data
             if indeces:
                 TRAIN_DF_ = TRAIN_DF.iloc[indeces[0]].reset_index(drop=True)
@@ -156,7 +157,7 @@ class _CensusIncome:
                                           scale=scale)
             test_prop_labels = 1 * (lambda_fn(TEST_DF_).to_numpy())
 
-            # breakpoint()
+            breakpoint()
 
             (x_tr, y_tr, cols), (x_te, y_te, cols) = self.get_x_y(
                 TRAIN_DF_), self.get_x_y(TEST_DF_)
@@ -165,6 +166,8 @@ class _CensusIncome:
                 idx = np.random.choice(len(y_tr), int(
                     label_noise*len(y_tr)), replace=False)
                 y_tr[idx, 0] = 1 - y_tr[idx, 0]
+
+            breakpoint()
 
             return ((x_tr, y_tr,train_prop_labels), (x_te, y_te,test_prop_labels), cols), (train_ids, test_ids)
            
@@ -226,7 +229,6 @@ class _CensusIncome:
         # Create train/test splits for victim/adv
         self.train_df_victim, self.train_df_adv = s_split(self.train_df)
         self.test_df_victim, self.test_df_adv = s_split(self.test_df)
-        # breakpoint()
 
     def _get_prop_label_lambda(self, filter_prop):
         if filter_prop == "sex":
@@ -268,7 +270,6 @@ class _CensusIncome:
         else:
             subsample_size = custom_limit
 
-        # breakpoint()
         return utils.heuristic(
                             df, 
                             lambda_fn, 

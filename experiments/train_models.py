@@ -87,7 +87,9 @@ if __name__ == "__main__":
             else:
                 shuffle_defense = ShuffleDefense(shuffle_defense_config)
 
-    # Create new DS object
+    # TODO: If I wanted pass in what dataset to use for victim model
+    # this is where it would be done ... currently hardcoding it and 
+    # manually changing it
     ds = ds_wrapper_class(data_config,
                           epoch=train_config.save_every_epoch,
                           shuffle_defense=shuffle_defense,
@@ -115,20 +117,12 @@ if __name__ == "__main__":
         print("Training classifier %d / %d" % (i, train_config.num_models))
 
         # Get data loaders
+        #HERE!
         train_loader, val_loader = ds.get_loaders(
             batch_size=train_config.batch_size)
 
-
-        #print(1/(len(train_loader.dataset)*train_config.batch_size))
-        # print(len(val_loader.dataset))
-        #exit(0)
         plist = []
-        # for t in train_loader:
-        #     _,_,prop_l = t
-        #     for k in prop_l:
-        #         plist.append(k)
-        # print(np.mean(plist))
-        # Get model
+
         if dp_config is None:
             if data_config.name == "synthetic":
                 model = ds_info.get_model(model_arch=train_config.model_arch,
@@ -139,6 +133,7 @@ if __name__ == "__main__":
         else:
             model = ds_info.get_model_for_dp(
                 model_arch=train_config.model_arch)
+
 
         # Train model
         if EXTRA:

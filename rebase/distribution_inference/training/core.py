@@ -400,6 +400,11 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
     else:
         criterion = nn.BCEWithLogitsLoss()
 
+    # tr_avg_prop =  train_loader.dataset.data[:, :, -1].mean()
+    # te_avg_prop =  test_loader.dataset.data[:, :, -1].mean()
+    # print(f"training average prop ratio: {tr_avg_prop}")
+    # print(f"test average prop ratio: {te_avg_prop}")
+
     # LR Scheduler
     lr_scheduler = None
     if train_config.lr_scheduler is not None:
@@ -444,6 +449,7 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
                                   regression=train_config.regression,
                                   multi_class=train_config.multi_class,
                                   shuffle_defense=shuffle_defense)
+
 
         # Get metrics on val data, if available
         if val_loader is not None:

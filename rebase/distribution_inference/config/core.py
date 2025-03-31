@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from lib2to3.pgen2.token import OP
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Tuple
 import numpy as np
 from simple_parsing.helpers import Serializable, field
 
@@ -117,6 +117,23 @@ class ShuffleDefenseConfig(Serializable):
 
 
 @dataclass
+class WTDatasetConfigs(Serializable):
+    """
+        The following are only relevant for the WindTurbine Dataset
+    """
+    adv_vic_data_overlap: Optional[bool] = False
+    """Whether or not data can overlap between adv and victim models during training"""
+    train_test_data_overlap: Optional[bool] = False
+    """Whether or not data can overalp between training and test dataset"""
+    turbines: Optional[List[str]] = None
+    """List of wind turbines to use for dataset"""
+    training_timestamp_range: Optional[Tuple[str, str]] = None
+    """Timestamp range to use for training dataset"""
+    use_faults: Optional[bool] = False
+    """Optionally use WT faulty period data in dataset"""
+
+
+@dataclass
 class DatasetConfig(Serializable):
     """
         Dataset-specific configuration values.
@@ -149,6 +166,8 @@ class DatasetConfig(Serializable):
     """What percentage of data should be used to train adv models (out of the quota reserved)"""
     relation_config: Optional[RelationConfig] = None
     """Configuration to be used for relation net training"""
+    WT_config: Optional[WTDatasetConfigs] = None
+    """Extra dataset configuraitons for WT models"""
 
 
 @dataclass
@@ -290,7 +309,10 @@ class TrainConfig(Serializable):
     """Relevant for ASR/Huggingface: freeze encoder?"""
     clip_grad_norm: Optional[float] = None
     """If not none, clip gradients to this norm"""
-
+    # TODO: remove if remains irrelevant
+    # validate: Optional[bool] = True
+    # """Run validation during training"""
+    
 
 @dataclass
 class GenerativeAttackConfig(Serializable):

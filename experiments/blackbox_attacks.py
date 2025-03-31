@@ -73,6 +73,7 @@ if __name__ == "__main__":
         skip_data=True,
         label_noise=train_config.label_noise,
         epoch=attack_config.train_config.save_every_epoch)
+    #HERE!
     ds_adv_1 = ds_wrapper_class(data_config_adv_1)
     train_adv_config = get_train_config_for_adv(train_config, attack_config)
 
@@ -186,7 +187,7 @@ if __name__ == "__main__":
                 preds_adv_on_1, preds_vic_on_1, ground_truth_1, not_using_logits = get_vic_adv_preds_on_distr(
                     models_vic=(models_vic_1, models_vic_2),
                     models_adv=(models_adv_1, models_adv_2),
-                    ds_obj=ds_adv_1, # victim model distribution
+                    ds_obj=ds_adv_1, # victim model distribution #HERE!
                     batch_size=bb_attack_config.batch_size,
                     epochwise_version=attack_config.train_config.save_every_epoch,
                     preload=bb_attack_config.preload,

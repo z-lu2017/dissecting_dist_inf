@@ -3,7 +3,8 @@ from typing import Tuple
 from typing import List, Callable
 
 from distribution_inference.attacks.blackbox.core import Attack, threshold_test_per_dist, PredictionsOnDistributions
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, mean_squared_error
+
 
 class LossAndThresholdAttack(Attack):
     def attack(self,
@@ -27,7 +28,17 @@ class LossAndThresholdAttack(Attack):
             epochwise_version and self.config.multi2), "No implementation for both epochwise and multi model"
         
         if regression:
-            def calc_regression_metric(data, labels, multi_class=False):
+            def calc_regression_metric_mse(data, labels, multi_class=False):
+                print("using mse metric")
+                n_models = data.shape[1]
+                mse_scores = np.zeros(n_models)
+                for i in range(n_models):
+                    y_pred = data[:, i]
+                    mse_scores[i] = mean_squared_error(labels, y_pred)
+                return mse_scores
+
+            def calc_regression_metric_r2(data, labels, multi_class=False):
+                print("using r2 metric")
                 n_models = data.shape[1]
                 r2_scores = np.zeros(n_models)
                 # Compute r² for each model independently
@@ -39,7 +50,8 @@ class LossAndThresholdAttack(Attack):
                     r2_scores[i] = 1 - ss_res / ss_tot if ss_tot != 0 else 0.0
                 return r2_scores
 
-            calc_acc = calc_regression_metric
+            # calc_acc = calc_regression_metric_r2
+            calc_acc = calc_regression_metric_mse
         
         # Get accuracies on first data distribution using prediction from shadow/victim models
         adv_accs_1, victim_accs_1, acc_1 = threshold_test_per_dist(
@@ -57,6 +69,8 @@ class LossAndThresholdAttack(Attack):
             ground_truth[1],
             self.config,
             epochwise_version=epochwise_version)
+        # adv_acc: how often the theshold rule correctly distinguishes between the 
+        # adv two different prediction sets (assume victim can't really be better than this)
 
         # Get best adv accuracies for both distributions, across all ratios
         chosen_distribution = 0
@@ -73,6 +87,8 @@ class LossAndThresholdAttack(Attack):
             victim_acc_use = [x[chosen_ratio_index] for x in victim_accs_use]
         else:
             victim_acc_use = victim_accs_use[chosen_ratio_index]
+        # victim_accuracy: how often the same adv theshold correctly distinguishes
+        # between the victim's model predictions
 
         # Loss test
         if epochwise_version:
@@ -91,9 +107,10 @@ class LossAndThresholdAttack(Attack):
             else:
                 basic = self._loss_test(acc_1, acc_2)
             basic_chosen = basic[chosen_ratio_index]
-        
-
+        # basic_chosen: how effective the loss test can discriminate btw the two sets
         choice_information = (chosen_distribution, chosen_ratio_index)
+        # returning [(threshold test results, loss test results), theshold accuracy on adversarial model (upper bound on vic acc), choice info]
+        print([[(victim_acc_use, basic_chosen)], [adv_accs_use[chosen_ratio_index]], choice_information])
         return [[(victim_acc_use, basic_chosen)], [adv_accs_use[chosen_ratio_index]], choice_information]
 
     def _loss_test(self, acc_1, acc_2):

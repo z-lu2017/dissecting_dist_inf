@@ -367,7 +367,7 @@ def get_vic_adv_preds_on_distr(
         loader_vic = (data_ds, test_idx)
         loader_adv = loader_vic
     else:
-        loader_for_shape, loader_vic = ds_obj.get_loaders(batch_size=batch_size)
+        loader_for_shape, loader_vic = ds_obj.get_loaders(batch_size=batch_size) #HERE!
         # This line doesn't appear to be used at assignment ... will keep here for now
         # adv_datum_shape = next(iter(loader_for_shape))[0].shape[1:]
         if make_processed_version:
@@ -377,6 +377,8 @@ def get_vic_adv_preds_on_distr(
             loader_adv = ds_obj.get_processed_val_loader(batch_size=batch_size)
         else:
             # Get val data loader (should be same for all models, since get_loaders() gets new data for every call)
+            # this loader uses data same data used for val when training models. 
+            # currently no instances of holdout set that I see
             loader_adv = loader_vic
 
         # TODO: Use preload logic here to speed things even more

@@ -148,7 +148,9 @@ class _WindTurbineGearboxOilTemperature:
                     label_noise*len(y_tr)), replace=False)
                 y_tr[idx, 0] = 1 - y_tr[idx, 0]
 
-            # breakpoint() to check if data has correct ratio
+
+            #to check if data has correct ratio
+            breakpoint()
 
             return ((x_tr, y_tr,train_prop_labels), (x_te, y_te,test_prop_labels), cols), (train_ids, test_ids)
         if split == "all":
