@@ -121,9 +121,11 @@ class WTDatasetConfigs(Serializable):
     """
         The following are only relevant for the WindTurbine Dataset
     """
-    adv_vic_data_overlap: Optional[bool] = False
+    download_data: Optional[bool] = False
+    """Whether or not to download the data from the EDP site (False assumes it is in datasets dir)"""
+    adv_vic_data_overlap_ratio: Optional[float] = 0.0
     """Whether or not data can overlap between adv and victim models during training"""
-    train_test_data_overlap: Optional[bool] = False
+    train_test_data_overlap_ratio: Optional[float] = 0.0
     """Whether or not data can overalp between training and test dataset"""
     turbines: Optional[List[str]] = None
     """List of wind turbines to use for dataset"""
@@ -131,6 +133,10 @@ class WTDatasetConfigs(Serializable):
     """Timestamp range to use for training dataset"""
     use_faults: Optional[bool] = False
     """Optionally use WT faulty period data in dataset"""
+    sensitive_properties: List[str] = None
+    """Which property or combination of proporties to use for sensistive property"""
+    predicted_property: List[str] = None
+    """The property being used in the prediction task"""
 
 
 @dataclass

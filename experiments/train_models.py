@@ -17,7 +17,7 @@ from distribution_inference.defenses.active.shuffle import ShuffleDefense
 import os
 
 
-EXTRA = False #True
+EXTRA = False
 if __name__ == "__main__":
     parser = ArgumentParser(add_help=False)
     parser.add_argument(

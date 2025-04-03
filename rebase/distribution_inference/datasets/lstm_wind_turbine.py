@@ -1,14 +1,18 @@
 from distribution_inference.defenses.active.shuffle import ShuffleDefense
 from sklearn.model_selection import StratifiedShuffleSplit
-
 import sys
+
+#TODO: fix this/add classes to distribution inference as needed
+sys.path.append("/sfs/gpfs/tardis/home/ujx4ab/ondemand/dissecting_dist_inf/WF_Data/EDP/Data")
+from data_processing import data_farm  
+
 import os
 import pickle
 import pandas as pd
 import numpy as np
-import os
 import torch as ch
 import torch.nn as nn
+import re
 
 from distribution_inference.config import TrainConfig, DatasetConfig
 from distribution_inference.models.core import MaskedLSTM
@@ -30,10 +34,10 @@ class DatasetInformation(base.DatasetInformation):
         super().__init__(name="LSTM_Wind_Turbines",
                          data_path=data_path,
                          models_path="lstm_wind_turbines",
-                         properties=["Bp_bin"], 
+                         properties=["Sensitive_prop"], 
                          values={"wind_turbines": ratios},
                          supported_models=["MaskedLSTM"],
-                         property_focus={"Bp_bin": 1.0},
+                         property_focus={"Sensitive_prop": 1.0},
                          default_model="MaskedLSTM",
                          epoch_wise=epoch_wise)
 
@@ -53,49 +57,88 @@ class DatasetInformation(base.DatasetInformation):
 class _WindTurbinePower:
     def __init__(self, data_config, drop_senstive_cols=False):
         self.drop_senstive_cols = drop_senstive_cols
-        self.columns = [
-            "Wind_speed", "Wind_speed_std", "Wind_rel_dir", "Amb_temp",
-            "Gen_speed", "Gen_speed_std", "Rotor_speed", "Rotor_speed_std",
-            "Blade_pitch_std", "Gen_phase_temp_1", "Gen_phase_temp_2",
-            "Gen_phase_temp_3", "Transf_temp_p1", "Transf_temp_p2", "Transf_temp_p3",
-            "Gen_bearing_temp_1", "Gen_bearing_temp_2", "Hyd_oil_temp", "Gear_oil_temp",
-            "Gear_bear_temp", "Nacelle_position",  "Bp_bin", "Power"
-        ]
-        self.data_config = data_config
 
-        # two flags to determine which data is used for loaders
-        # self.mode = get_mode_from_script()
+        self.data_config = data_config
         self.split = data_config.split 
+
+        self.sensitive_properties = self.data_config.WT_config.sensitive_properties
+        self.predicted_property = self.data_config.WT_config.predicted_property
+        self.info_object = DatasetInformation()
+        self.timestamp_split = self.data_config.WT_config.training_timestamp_range or ["2017-06-01"]
+        self.base_data_dir = self.info_object.base_data_dir
+
+        utils.create_dirs(self.base_data_dir)
+
+        if self.data_config.WT_config.download_data: 
+            utils.get_and_save_data(self.base_data_dir, data_type="fault")
+            utils.get_and_save_data(self.base_data_dir, data_type="normal")
+
+        utils.process_edp_data(
+            self.base_data_dir, 
+            self.sensitive_properties, 
+            self.predicted_property,
+            self.data_config.WT_config.use_faults
+        )
+                
         self.load_data(test_ratio=0.4)
     
     # Create adv/victim splits
     def load_data(self, test_ratio, random_state: int = 42):
-        data_path = "LSTM_WTs/faults" if self.data_config.WT_config.use_faults else "LSTM_WTs/normal"
-        info_object = DatasetInformation(data_path=data_path)
-        if self.data_config.WT_config.turbines is not None: 
-            victim_WTs = ["WT_" + WT_nbr for WT_nbr in self.data_config.WT_config.turbines]
+        victim_WTs = ["WT_" + WT_nbr for WT_nbr in self.data_config.WT_config.turbines] if self.data_config.WT_config.turbines else None
 
-        self.train_X, self.train_y, self.train_masks, _ = utils.aggregate_data(info_object.base_data_dir, victim_WTs, "train")
-        self.test_X, self.test_y, self.test_masks, _ = utils.aggregate_data(info_object.base_data_dir, victim_WTs, "test")
+        DATA_FOLDER = os.path.join(self.info_object.base_data_dir, "data_prep")
+        FAULTS_DATA_FOLDER = os.path.join(self.info_object.base_data_dir, "data_prep_faults_included")
+        
+        if not os.path.exists(DATA_FOLDER) or not os.path.exists(FAULTS_DATA_FOLDER):
+            raise FileNotFoundError(f"Data folders missing in {self.info_object.base_data_dir}")
 
-        # if self.mode == "train" and self.split == "victim":
-        #     base_train = os.path.join(info_object.base_data_dir, f"{self.victim_WT}_train_dataset")
-        #     base_test = os.path.join(info_object.base_data_dir, f"{self.victim_WT}_test_dataset")
-        # else:
-        #     base_train = os.path.join(info_object.base_data_dir, "agg_train_dataset")
-        #     base_test = os.path.join(info_object.base_data_dir, "agg_test_dataset")
+        output_dir = "/home/ujx4ab/ondemand/dissecting_dist_inf/datasets/LSTM_WTs/"
+        for WT_name, WT_data in utils.get_segmented_data(DATA_FOLDER): 
+            training_data, testing_data = utils.split_for_training(WT_data, self.timestamp_split)
+            utils.save_processed_data(training_data, directory=os.path.join(output_dir, f"normal/WT_{WT_name}_train_dataset"))
+            utils.save_processed_data(testing_data, directory=os.path.join(output_dir, f"normal/WT_{WT_name}_test_dataset"))
+        for WT_name, WT_data in utils.get_segmented_data(FAULTS_DATA_FOLDER): 
+            training_data, testing_data = utils.split_for_training(WT_data, self.timestamp_split)
+            utils.save_processed_data(training_data, directory=os.path.join(output_dir, f"faults/WT_{WT_name}_fault_train_dataset"))
+            utils.save_processed_data(testing_data, directory=os.path.join(output_dir, f"faults/WT_{WT_name}_fault_test_dataset"))
 
+        data_path_suffix = "faults" if self.data_config.WT_config.use_faults else "normal"
+        self.info_object.base_data_dir = os.path.join(self.info_object.base_data_dir, data_path_suffix)
         
-        # self.train_X = np.load(os.path.join(base_train, "X.npy"), allow_pickle=True)
-        # self.train_y = np.load(os.path.join(base_train, "y.npy"), allow_pickle=True)
-        # self.train_masks = np.load(os.path.join(base_train, "mask.npy"), allow_pickle=True)
+        self.train_X, self.train_y, self.train_masks, _ = utils.aggregate_data(
+            self.info_object.base_data_dir, victim_WTs, "train"
+        )
+        test_X, test_y, test_masks, _ = utils.aggregate_data(
+            self.info_object.base_data_dir, victim_WTs, "test"
+        )
+
+        def create_overlap(ds1, ds2, ratio):
+            if ratio<0.0 or ratio>1.0: raise ValueError(f"The data overlap ratio {ratio} cannot be negative or greater than 1.0")
+            N, M = len(ds1), len(ds2)
+            total_swap = int((N + M) * ratio)
+            swap1 = int(N/(N+M) * total_swap)
+            swap2 = total_swap - swap1
+            return (
+                np.random.choice(N, swap1, False),
+                np.random.choice(M, swap2, False)
+            )
         
-        # self.test_X = np.load(os.path.join(base_test, "X.npy"), allow_pickle=True)
-        # self.test_y = np.load(os.path.join(base_test, "y.npy"), allow_pickle=True)
-        # self.test_masks = np.load(os.path.join(base_test, "mask.npy"), allow_pickle=True)
-        
-        print(f"Size of train, test data: {self.train_X.shape}, {self.test_X.shape}")
-        
+        f = self.data_config.WT_config.train_test_data_overlap_ratio
+        if f == 0:
+            self.test_X, self.test_y, self.test_masks = test_X, test_y, test_masks
+        else:
+            train_ol_idx, test_ol_idx = create_overlap(self.train_X, test_X, f)
+            
+            print(f"Overlap for train/test data: {f:.1%})\n")
+            self.train_X = np.concatenate([self.train_X, test_X[test_ol_idx]])
+            self.test_X = np.concatenate([test_X, self.train_X[train_ol_idx]])
+            self.train_y = np.concatenate([self.train_y, test_y[test_ol_idx]])
+            self.test_y = np.concatenate([test_y, self.train_y[train_ol_idx]])
+            self.train_masks = np.concatenate([self.train_masks, test_masks[test_ol_idx]])
+            self.test_masks = np.concatenate([test_masks, self.train_masks[train_ol_idx]])        
+
+        breakpoint()
+
         def compute_binned_features(X, y, masks):
             feature_values = X[:, :, -1]
             masks_float = masks.astype(float)
@@ -137,16 +180,25 @@ class _WindTurbinePower:
         train_vic_split_indices, train_adv_split_indices = s_split(train_binned_features)
         test_vic_split_indices, test_adv_split_indices = s_split(test_binned_features)
 
-        # safety checks
-        common_train_indices = np.intersect1d(train_vic_split_indices, train_adv_split_indices)
-        assert len(common_train_indices) == 0, "Train splits overlap!"
-        common_test_indices = np.intersect1d(test_vic_split_indices, test_adv_split_indices)
-        assert len(common_test_indices) == 0, "Test splits overlap!"
-        common_adv_indices = np.intersect1d(train_adv_split_indices, test_adv_split_indices)
-        assert len(common_train_indices) == 0, "Adv splits overlap!"
-        common_vic_indices = np.intersect1d(train_vic_split_indices, test_vic_split_indices)
-        assert len(common_test_indices) == 0, "Vic splits overlap!"
-        assert len(train_binned_features) == len(self.train_X)
+        if self.data_config.WT_config.adv_vic_data_overlap_ratio:
+            train_vic_ol, train_adv_ol = create_overlap(train_vic_split_indices, train_adv_split_indices, self.data_config.WT_config.adv_vic_data_overlap_ratio)
+            train_vic_split_indices = np.concatenate([train_vic_split_indices, train_adv_split_indices[train_adv_ol]])
+            train_adv_split_indices = np.concatenate([train_adv_split_indices, train_vic_split_indices[train_vic_ol]])
+            print(f"Vic/Adv overlap for training data: {self.data_config.WT_config.adv_vic_data_overlap_ratio:.1%})\n")
+            
+            test_vic_ol, test_adv_ol = create_overlap(test_vic_split_indices, test_adv_split_indices, self.data_config.WT_config.adv_vic_data_overlap_ratio)
+            test_vic_split_indices = np.concatenate([test_vic_split_indices, test_adv_split_indices[test_adv_ol]])
+            test_adv_split_indices = np.concatenate([test_adv_split_indices, test_vic_split_indices[test_vic_ol]])
+            print(f"Vic/Adv overlap for test data: {self.data_config.WT_config.adv_vic_data_overlap_ratio:.1%})")
+        else:         
+            common_train_indices = np.intersect1d(train_vic_split_indices, train_adv_split_indices)
+            assert len(common_train_indices) == 0, "Train splits overlap!"
+            common_test_indices = np.intersect1d(test_vic_split_indices, test_adv_split_indices)
+            assert len(common_test_indices) == 0, "Test splits overlap!"
+            common_adv_indices = np.intersect1d(train_adv_split_indices, test_adv_split_indices)
+            assert len(common_train_indices) == 0, "Adv splits overlap!"
+            common_vic_indices = np.intersect1d(train_vic_split_indices, test_vic_split_indices)
+            assert len(common_test_indices) == 0, "Vic splits overlap!"
 
         # Extract the proper data splits for victim/adv models
         self.train_df_X_vic = self.train_X[train_vic_split_indices]
@@ -167,82 +219,6 @@ class _WindTurbinePower:
             f"{self.train_df_victim['Bp_bin'].mean()}, {self.train_df_adv['Bp_bin'].mean()}")
         print(f"Ratio of property of interest in vic, adv test dataset (no mask): "
             f"{self.test_df_victim['Bp_bin'].mean()}, {self.test_df_adv['Bp_bin'].mean()}")
-
-        # # only want to use specific WT data when victim models
-        # if self.mode == "train" and self.split == "victim":
-        #     self.train_X = np.load(os.path.join(info_object.base_data_dir, f"{self.victim_WT}_train_dataset", "X.npy"), allow_pickle=True)
-        #     self.train_y = np.load(os.path.join(info_object.base_data_dir, f"{self.victim_WT}_train_dataset", "y.npy"), allow_pickle=True)
-        #     self.train_masks = np.load(os.path.join(info_object.base_data_dir, f"{self.victim_WT}_train_dataset", "mask.npy"), allow_pickle=True)
-
-        #     self.test_X = np.load(os.path.join(info_object.base_data_dir, f"{self.victim_WT}_test_dataset", "X.npy"), allow_pickle=True)
-        #     self.test_y = np.load(os.path.join(info_object.base_data_dir, f"{self.victim_WT}_test_dataset", "y.npy"), allow_pickle=True)
-        #     self.test_masks = np.load(os.path.join(info_object.base_data_dir, f"{self.victim_WT}_test_dataset", "mask.npy"), allow_pickle=True)
-
-        # else:  # Adv models use aggregate and attack data is aggregate
-        #     self.train_X = np.load(os.path.join(info_object.base_data_dir, "agg_train_dataset", "X.npy"), allow_pickle=True)
-        #     self.train_y = np.load(os.path.join(info_object.base_data_dir, "agg_train_dataset", "y.npy"), allow_pickle=True)
-        #     self.train_masks = np.load(os.path.join(info_object.base_data_dir, "agg_train_dataset", "mask.npy"), allow_pickle=True)
-
-        #     self.test_X = np.load(os.path.join(info_object.base_data_dir, "agg_test_dataset", "X.npy"), allow_pickle=True)
-        #     self.test_y = np.load(os.path.join(info_object.base_data_dir, "agg_test_dataset", "y.npy"), allow_pickle=True)
-        #     self.test_masks = np.load(os.path.join(info_object.base_data_dir, "agg_test_dataset", "mask.npy"), allow_pickle=True)
-
-        # print(f"Size of train, test data: {self.train_X.shape}, {self.test_X.shape}")
-
-        # train_x_data = np.mean(self.train_X, axis=1)
-        # train_data = np.hstack((train_x_data, self.train_y))
-        # self.train_df = pd.DataFrame(train_data, columns=self.columns)
-        
-        # test_x_data = np.mean(self.test_X, axis=1)
-        # test_data = np.hstack((test_x_data, self.test_y))
-        # self.test_df = pd.DataFrame(test_data, columns=self.columns)
-
-        # print(f"Ratio of property of interest in test, train datasets (no mask): {self.train_df['Bp_bin'].mean()}, {self.test_df['Bp_bin'].mean()}")
-        
-        # Bp_bin_edges = np.linspace(-0.01, 1.01, 3)  # For Bp
-        # Power_bin_edges = np.linspace(-0.01, 1.01, 3)  # For Power
-
-        # self.train_df['Bp_bin'] = np.digitize(self.train_df['Bp_bin'], bins=Bp_bin_edges, right=False) - 1
-        # self.train_df['Power_bin'] = np.digitize(self.train_df['Power'], bins=Power_bin_edges, right=False) - 1
-        # self.train_df.drop(columns=['Power'], inplace=True)
-        # self.train_df["indices"] = self.train_df.index
-
-        # self.test_df['Bp_bin'] = np.digitize(self.test_df['Bp_bin'], bins=Bp_bin_edges, right=False) - 1
-        # self.test_df['Power_bin'] = np.digitize(self.test_df['Power'], bins=Power_bin_edges, right=False) - 1
-        # self.test_df.drop(columns=['Power'], inplace=True)
-        # self.test_df["indices"] = self.test_df.index
-
-        # def s_split(this_df, rs=random_state):
-        #     sss = StratifiedShuffleSplit(n_splits=1,            # Only generate one train-test split 
-        #                                  test_size=test_ratio,  # Fraction of dataset to split by
-        #                                  random_state=rs)      
-            
-        #     splitter = sss.split(np.zeros(len(this_df)), this_df[["Bp_bin", "Power_bin"]]) 
-        #     return next(splitter)                                
-
-        # # Create train/test splits for victim/adv
-        # train_vic_split_indices, train_adv_split_indices = s_split(self.train_df)
-        # test_vic_split_indices, test_adv_split_indices = s_split(self.test_df)
-
-        # # used for final extraction of proper data of interest
-        # self.train_df_X_vic = self.train_X[train_vic_split_indices]
-        # self.train_df_y_vic = self.train_y[train_vic_split_indices]
-        # self.train_df_X_adv = self.train_X[train_adv_split_indices]
-        # self.train_df_y_adv = self.train_y[train_adv_split_indices]
-
-        # self.test_df_X_vic = self.test_X[test_vic_split_indices]
-        # self.test_df_y_vic = self.test_y[test_vic_split_indices]
-        # self.test_df_X_adv = self.test_X[test_adv_split_indices]
-        # self.test_df_y_adv = self.test_y[test_adv_split_indices]
-
-        # # Duplicate data for sake of keeping original data splitting pipeline
-        # self.train_df_victim, self.train_df_adv = self.train_df.iloc[train_vic_split_indices], self.train_df.iloc[train_adv_split_indices]
-        # self.test_df_victim, self.test_df_adv = self.test_df.iloc[test_vic_split_indices], self.test_df.iloc[test_adv_split_indices]
-        
-
-        # print(f"Ratio of property of interest in vic, adv train dataset (no mask): {self.train_df_victim['Bp_bin'].mean()}, {self.train_df_adv['Bp_bin'].mean()}")
-        # print(f"Ratio of property of interest in vic, adv test dataset (no mask): {self.test_df_victim['Bp_bin'].mean()}, {self.test_df_adv['Bp_bin'].mean()}")
-
 
     def _get_prop_label_lambda(self, filter_prop):
         if filter_prop == "Bp_bin":
@@ -477,7 +453,7 @@ class LSTMWindTurbineWrapper(base.CustomDatasetWrapper):
 
         save_path = os.path.join(base_path, self.prop, self.split)
 
-        WT_config = "WTs_"+"_".join(self.ds.data_config.WT_config.turbines)
+        WT_config = "WTs_"+"_".join(self.ds.data_config.WT_config.turbines) if self.ds.data_config.WT_config.turbines else "WTs_all"
         
         if WT_config is not None: 
             save_path = os.path.join(save_path, WT_config)
@@ -496,7 +472,6 @@ class LSTMWindTurbineWrapper(base.CustomDatasetWrapper):
             os.makedirs(save_path)
 
         # print("Loading models from path", save_path)
-        breakpoint()
         return save_path
     
 class WindTurbineDataset(base.CustomDataset):
