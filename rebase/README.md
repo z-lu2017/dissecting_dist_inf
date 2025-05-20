@@ -16,7 +16,14 @@ Folder structure:
 ## Setting up your enviroment
 
 ### Virtual Enviroment
-The easiest way to setup your virtual enviroment is use the requirements file, not the environment.yml. If package version issues arise, install torch/torchvision directly from conda as described on their homepage (https://pytorch.org/get-started/locally/) and install other dependencies using the packages listed in requirements.txt. Using some 2.x version of Pytorch and 2.x version of numpy should be fine.
+The easiest way to setup your virtual enviroment is use the requirements file, not the environment.yml. The package versions should be up to date, but may need to be slightly adjusted moving forward. For ease of use add the following lines to the "activate" file in the new virtual enviroment once it is created: 
+    export DDI_DATA_DIRECTORY=/home/ujx4ab/ondemand/dissecting_dist_inf/datasets
+    export DDI_MODELS_DIRECTORY=/home/ujx4ab/ondemand/dissecting_dist_inf/models/
+    module load cuda/12.4.1
+    alias python="/home/ujx4ab/ondemand/dissecting_dist_inf/.venv/bin/python"
+Deactivate and reactive the virtual enviroment to apply them.
+
+If you are running this repository on UVA's Rivanna, then you may encounter an issue with some packages. More specifically, you may encounter an openssl version issue. This is becasue dgl requires a specific version and Rivanna has a system wide one installed. If this is the case then you can download the necessary version of openssl locally and have dynamically link it to override the system wide version.
 
 ### Installing the package
 

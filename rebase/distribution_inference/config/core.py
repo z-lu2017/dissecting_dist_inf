@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from lib2to3.pgen2.token import OP
-from typing import Optional, List, Union, Tuple
+from typing import Optional, List, Union, Tuple, Dict, Any
 import numpy as np
 from simple_parsing.helpers import Serializable, field
 
@@ -119,7 +119,7 @@ class ShuffleDefenseConfig(Serializable):
 @dataclass
 class WTDatasetConfigs(Serializable):
     """
-        The following are only relevant for the WindTurbine Dataset
+        The following are only relevant for the WindTurbine Datasets
     """
     download_data: Optional[bool] = False
     """Whether or not to download the data from the EDP site (False assumes it is in datasets dir)"""
@@ -128,16 +128,27 @@ class WTDatasetConfigs(Serializable):
     train_test_data_overlap_ratio: Optional[float] = 0.0
     """Whether or not data can overalp between training and test dataset"""
     turbines: Optional[List[str]] = None
-    """List of wind turbines to use for dataset"""
+    """List of wind turbines to use for dataset. Ex ["01", "06"], default is all"""
     training_timestamp_range: Optional[Tuple[str, str]] = None
     """Timestamp range to use for training dataset"""
-    use_faults: Optional[bool] = False
-    """Optionally use WT faulty period data in dataset"""
-    sensitive_properties: List[str] = None
-    """Which property or combination of proporties to use for sensistive property"""
+    exclude_fault_data: Optional[bool] = False
+    """When true, faulty data is removed from the dataset"""
     predicted_property: List[str] = None
     """The property being used in the prediction task"""
+    dataset: str = None
+    """The WT dataset to be used"""
 
+@dataclass
+class FeatureConfig(Serializable):
+    """
+        The following is only relevant for the WindTurbine Datsets
+    """
+    rename: Dict[str, Any] = field(default_factory=dict)
+    """How to rename variables in different datasets to be used as features"""
+    cols: List[str] = field(default_factory=list)
+    """Input features, including the target feature"""
+    WT_IDs: List[str] = field(default_factory=list)
+    """The wind turbine ids"""
 
 @dataclass
 class DatasetConfig(Serializable):
@@ -152,7 +163,7 @@ class DatasetConfig(Serializable):
     """Value of property to filter on"""
     split: str = field(choices=["victim", "adv"])
     """Split of dataset to use (victim or adv)"""
-    drop_senstive_cols: Optional[bool] = False
+    drop_sensitive_cols: Optional[bool] = False
     """Whether to drop sensitive columns"""
     scale: Optional[float] = 1.0
     """Scale subsample size by this value"""
@@ -174,6 +185,8 @@ class DatasetConfig(Serializable):
     """Configuration to be used for relation net training"""
     WT_config: Optional[WTDatasetConfigs] = None
     """Extra dataset configuraitons for WT models"""
+    feature_config: Dict[str, FeatureConfig] = field(default_factory=dict)
+    """If using the WT datasets, details on the features to use in training"""
 
 
 @dataclass
@@ -296,7 +309,7 @@ class TrainConfig(Serializable):
     extra_info: Optional[dict] = None
     """Optional dictionary to store misc information for dataset-specific args"""
     regression: Optional[bool] = False
-    """Training for regression (MSE)?"""
+    """Training for regression (MSE)"""
     multi_class: Optional[bool] = False
     """Training for multi-class classification?"""
     label_noise: Optional[float] = 0
@@ -315,6 +328,9 @@ class TrainConfig(Serializable):
     """Relevant for ASR/Huggingface: freeze encoder?"""
     clip_grad_norm: Optional[float] = None
     """If not none, clip gradients to this norm"""
+    random_restart_threshold: Optional[float] = 0.0
+    """Vloss/vacc threshold between epochs to trigger random restart if model stagnates."""
+    """only implemented for regression task contexts"""
     # TODO: remove if remains irrelevant
     # validate: Optional[bool] = True
     # """Run validation during training"""

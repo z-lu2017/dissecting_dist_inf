@@ -9,7 +9,7 @@
 #SBATCH --gres=gpu:1                        # gpu devices per node
 #SBATCH --partition=gpu                     # partition
 #SBATCH --mem=32G                           # memory (cpu)
-#SBATCH -J "Train (lstm_wind_turbine/Bp_bin/victim/0.2/50)"
+#SBATCH -J "Train (lstm_wind_turbine/Bp_bin/adv/0.0/50)"
 #SBATCH --mail-user=ujx4ab@virginia.edu     # email address
 #SBATCH --account=uvasrg_paid               # allocation name
 #SBATCH -o slurm_results/train_models-%u-%j.out

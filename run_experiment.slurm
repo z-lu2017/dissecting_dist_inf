@@ -9,7 +9,7 @@
 #SBATCH --gres=gpu:1                        # gpu devices per node
 #SBATCH --partition=gpu                     # partition
 #SBATCH --mem=32G                           # memory (cpu)
-#SBATCH -J "Experiment (lstm_wind_turbine, bp_bin, 10 adv, 50 victim, 0.6), 1 try, [0.6]"
+#SBATCH -J "Experiment (Bp_wind, 0.05, [0.0, 0.05, 0.1])"
 #SBATCH --mail-user=ujx4ab@virginia.edu     # email address
 #SBATCH --account=uvasrg_paid               # allocation name
 #SBATCH -o slurm_results/run_experiment-%u-%j.out
@@ -18,7 +18,7 @@
 # LOAD MODULES, INSERT CODE, AND RUN YOUR PROGRAMS HERE
 export DATASET="lstm_wind_turbine"
 export TRAIN_CONFIG="loss_and_threshold_attack.json"
-export TEST_NAME="localVictim_10adv_50vic_1try_0.6ratio_mse"
+export TEST_NAME="Bp_wind_0.5_[0.0_0.05_0.1]_Allvic_Alladv"
 
 # Activate virtual environment
 source /home/ujx4ab/ondemand/dissecting_dist_inf/.venv/bin/activate
