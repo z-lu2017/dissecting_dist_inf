@@ -104,8 +104,8 @@ class DatasetInformation(base.DatasetInformation):
 
 
 class _CensusIncome:
-    def __init__(self, drop_senstive_cols=False):
-        self.drop_senstive_cols = drop_senstive_cols
+    def __init__(self, drop_sensitive_cols=False):
+        self.drop_sensitive_cols = drop_sensitive_cols
         self.columns = [
             "age", "workClass", "education-attainment",
             "marital-status", "race", "sex", "cognitive-difficulty",
@@ -119,7 +119,7 @@ class _CensusIncome:
         # Scale X values
         Y = P['income'].to_numpy()
         cols_drop = ['income']
-        if self.drop_senstive_cols:
+        if self.drop_sensitive_cols:
             cols_drop += ['sex', 'race']
         X = P.drop(columns=cols_drop, axis=1)
         # Convert specific columns to one-hot
@@ -136,7 +136,6 @@ class _CensusIncome:
         lambda_fn = self._get_prop_label_lambda(filter_prop)
 
         def prepare_one_set(TRAIN_DF, TEST_DF):
-            breakpoint()
             # Apply filter to data
             if indeces:
                 TRAIN_DF_ = TRAIN_DF.iloc[indeces[0]].reset_index(drop=True)
@@ -157,8 +156,6 @@ class _CensusIncome:
                                           scale=scale)
             test_prop_labels = 1 * (lambda_fn(TEST_DF_).to_numpy())
 
-            breakpoint()
-
             (x_tr, y_tr, cols), (x_te, y_te, cols) = self.get_x_y(
                 TRAIN_DF_), self.get_x_y(TEST_DF_)
             if label_noise:
@@ -166,8 +163,6 @@ class _CensusIncome:
                 idx = np.random.choice(len(y_tr), int(
                     label_noise*len(y_tr)), replace=False)
                 y_tr[idx, 0] = 1 - y_tr[idx, 0]
-
-            breakpoint()
 
             return ((x_tr, y_tr,train_prop_labels), (x_te, y_te,test_prop_labels), cols), (train_ids, test_ids)
            
@@ -225,6 +220,8 @@ class _CensusIncome:
                 this_df, this_df[["sex", "race", "income"]])
             split_1, split_2 = next(splitter)
             return this_df.iloc[split_1], this_df.iloc[split_2]
+
+        print(len(self.train_df) + len(self.test_df))
 
         # Create train/test splits for victim/adv
         self.train_df_victim, self.train_df_adv = s_split(self.train_df)
@@ -328,7 +325,7 @@ class CensusWrapper(base.CustomDatasetWrapper):
                          label_noise=label_noise,
                          shuffle_defense=shuffle_defense)
         if not skip_data:
-            self.ds = _CensusIncome(drop_senstive_cols=self.drop_senstive_cols)
+            self.ds = _CensusIncome(drop_sensitive_cols=self.drop_sensitive_cols)
         self.info_object = DatasetInformation(epoch_wise=epoch)
         
     def load_data(self, custom_limit=None, indexed_data=None):
@@ -352,7 +349,9 @@ class CensusWrapper(base.CustomDatasetWrapper):
                     shuffle: bool = True,
                     eval_shuffle: bool = False,
                     indexed_data=None):
-        train_data, val_data, _ = self.load_data(self.cwise_samples, indexed_data=indexed_data)
+                        
+
+        train_data, val_data, _ = self.load_data(self.cwise_samples, indexed_data=indexed_data)        
         self.ds_train = CensusSet(*train_data, squeeze=self.squeeze, ids = self._used_for_train)
         self.ds_val = CensusSet(*val_data, squeeze=self.squeeze, ids = self._used_for_test)
         self._train_ids_before = self.ds_train.ids
@@ -412,7 +411,7 @@ class CensusWrapper(base.CustomDatasetWrapper):
         if self.scale != 1.0:
             save_path = os.path.join(
                 self.scalesave_path, "sample_size_scale:{}".format(self.scale))
-        if self.drop_senstive_cols:
+        if self.drop_sensitive_cols:
             save_path = os.path.join(save_path, "drop")
 
         # Make sure this directory exists

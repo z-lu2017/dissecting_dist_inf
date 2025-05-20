@@ -134,7 +134,7 @@ class ComparisonAttack:
         save_path = os.path.join(save_path, "trained_on_{}".format(train_config.data_config.value))
 
         assert train_config.data_config.scale == 1.0
-        if train_config.data_config.drop_senstive_cols:
+        if train_config.data_config.drop_sensitive_cols:
             save_path = os.path.join(save_path, "drop")
         
         if self.trial!=None:

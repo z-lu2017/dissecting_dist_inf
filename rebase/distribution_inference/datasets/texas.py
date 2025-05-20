@@ -242,8 +242,8 @@ class DatasetInformation(base.DatasetInformation):
 
 
 class _Texas:
-    def __init__(self, drop_senstive_cols=False):
-        self.drop_senstive_cols = drop_senstive_cols
+    def __init__(self, drop_sensitive_cols=False):
+        self.drop_sensitive_cols = drop_sensitive_cols
         self.columns = ["thcic_id", "sex", "type_of_admission",
                         "source_of_admission", "length_of_stay",
                         "pat_age", "pat_status", "race", "ethnicity",
@@ -256,7 +256,7 @@ class _Texas:
         # Scale X values
         Y = P['label'].to_numpy()
         cols_drop = ['label']
-        if self.drop_senstive_cols:
+        if self.drop_sensitive_cols:
             cols_drop += ['sex', 'race', 'ethnicity']
         X = P.drop(columns=cols_drop, axis=1)
         # Convert specific columns to one-hot
@@ -383,8 +383,8 @@ class TexasWrapper(base.CustomDatasetWrapper):
                  shuffle_defense: ShuffleDefense = None):
         super().__init__(data_config, skip_data, label_noise, shuffle_defense=shuffle_defense)
         if not skip_data:
-            self.ds = _Texas(drop_senstive_cols=self.drop_senstive_cols)
-        if data_config.drop_senstive_cols:
+            self.ds = _Texas(drop_sensitive_cols=self.drop_sensitive_cols)
+        if data_config.drop_sensitive_cols:
             self.num_features_drop += 3
         self.info_object = DatasetInformation(
             num_dropped_features=self.num_features_drop, epoch_wise=epoch)
@@ -439,7 +439,7 @@ class TexasWrapper(base.CustomDatasetWrapper):
         if self.scale != 1.0:
             save_path = os.path.join(
                 self.scalesave_path, "sample_size_scale:{}".format(self.scale))
-        if self.drop_senstive_cols:
+        if self.drop_sensitive_cols:
             save_path = os.path.join(save_path, "drop")
 
         # Make sure this directory exists

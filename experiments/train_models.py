@@ -41,6 +41,16 @@ if __name__ == "__main__":
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+    print("CUDA_VISIBLE_DEVICES is set to:", os.environ["CUDA_VISIBLE_DEVICES"])
+    cuda_available = torch.cuda.is_available()
+    print("Is CUDA available?", cuda_available)
+    if cuda_available:
+        print("Number of GPUs available:", torch.cuda.device_count())
+
+    # Print the name of each GPU
+    for i in range(torch.cuda.device_count()):
+        print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
     
     # Extract configuration information from config file
     dp_config = None
@@ -120,9 +130,7 @@ if __name__ == "__main__":
         #HERE!
         train_loader, val_loader = ds.get_loaders(
             batch_size=train_config.batch_size)
-
-        plist = []
-
+        
         if dp_config is None:
             if data_config.name == "synthetic":
                 model = ds_info.get_model(model_arch=train_config.model_arch,

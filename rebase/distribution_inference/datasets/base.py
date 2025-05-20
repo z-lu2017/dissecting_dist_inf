@@ -149,7 +149,7 @@ class CustomDatasetWrapper:
         self.classify = data_config.classify
         self.augment = data_config.augment
         self.cwise_samples = data_config.cwise_samples
-        self.drop_senstive_cols = data_config.drop_senstive_cols
+        self.drop_sensitive_cols = data_config.drop_sensitive_cols
         self.scale = data_config.scale
         self.squeeze = data_config.squeeze
         self.processed_variant = data_config.processed_variant
