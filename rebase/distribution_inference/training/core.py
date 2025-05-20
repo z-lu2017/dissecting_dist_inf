@@ -26,7 +26,7 @@ def train(model, loaders, train_config: TrainConfig,
         # If DP training, call appropriate function
         return train_with_dp(model, loaders, train_config, input_is_list, extra_options)
     else:
-        # If DP training, call appropriate function
+        # If DP training, call appropriate function]
         return train_without_dp(model, loaders, train_config, input_is_list, extra_options, shuffle_defense)
 
 def train_epoch(train_loader, model, criterion, optimizer, epoch,
@@ -46,13 +46,25 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
     inner_iterator = train_loader
     if verbose:
         inner_iterator = tqdm(train_loader, desc=f'Epoch {epoch}', leave=False)
-    
+
+    # data = train_loader.dataset.data
+    # zero_windows = (data == 0).all(dim=2)         # shape [N, T], bool
+    # total_zero_windows = int(zero_windows.sum())  # scalar count
+    # record_idx, window_idx = zero_windows.nonzero(as_tuple=True)
+    # records_with_zero = ch.unique(record_idx)
+    # num_records_with_zero = int(records_with_zero.numel())
+
+    # print(records_with_zero)    
+    # print(num_records_with_zero)
+
     for tuple in inner_iterator:
         # Extract data
         if expect_extra:
             data, labels, prop_labels = tuple
         else:
             data, labels = tuple
+
+        # print(sum(sum(data['mask'])))
         
         # Use shuffle defense, as per need
         if shuffle_defense:
@@ -84,6 +96,10 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
         # Loss computation
         loss = criterion(outputs, labels.squeeze().long()
                          if multi_class else labels.squeeze().float())
+
+        if ch.isnan(loss): 
+            print("loss is NaN for some reason. Check input data...")
+            breakpoint()
         
         # Backward pass
         loss.backward()
@@ -109,87 +125,6 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
     if regression:
         return train_loss.avg, None
     return train_loss.avg, train_acc.avg
-
-# def train_epoch(train_loader, model, criterion, optimizer, epoch,
-#                 verbose: bool = True,
-#                 adv_config: AdvTrainingConfig = None,
-#                 expect_extra: bool = True,
-#                 input_is_list: bool = False,
-#                 regression: bool = False,
-#                 multi_class: bool = False,
-#                 shuffle_defense: ShuffleDefense = None):
-#     model.train()
-#     train_loss = AverageMeter()
-#     if not regression:
-#         train_acc = AverageMeter()
-
-#     iterator = train_loader
-#     if verbose:
-#         iterator = tqdm(train_loader)
-
-#     for tuple in iterator:
-#         # Extract data
-#         if expect_extra:
-#             data, labels, prop_labels = tuple
-#         else:
-#             data, labels = tuple
-        
-#         # Use shuffle defense, as per need
-#         if shuffle_defense:
-#             data, labels, prop_labels = shuffle_defense.process_batch(
-#                 (data, labels, prop_labels))
-
-#         # Support for using same code for AMC
-#         if isinstance(data, dict):
-#             # Move all tensors in the dict to GPU
-#             data = {k: v.cuda() for k, v in data.items()}
-#         elif input_is_list:
-#             data = [x.cuda() for x in data]
-#         else:
-#             data = data.cuda()
-
-#         labels = labels.cuda()
-#         N = labels.size(0)
-        
-#         if adv_config is None:
-#             # Clear accumulated gradients
-#             optimizer.zero_grad()
-#             outputs = model(data)
-#             if not multi_class:
-#                 outputs = outputs[:, 0]
-#         else:
-#             # Generate adversarial inputs
-#             adv_x = generate_adversarial_input(model, data, adv_config)
-#             # Important to zero grad after above call, else model gradients
-#             # get accumulated over attack too
-#             optimizer.zero_grad()
-#             outputs = model(adv_x)
-#             if not multi_class:
-#                 outputs = outputs[:, 0]
-
-#         loss = criterion(outputs, labels.squeeze().long()
-#                          if multi_class else labels.squeeze().float())
-#         loss.backward()
-#         optimizer.step()
-#         if not regression:
-#             if multi_class:
-#                 prediction = outputs.argmax(dim=1)
-#             else:
-#                 prediction = (outputs >= 0)
-#             train_acc.update(prediction.eq(
-#                 labels.view_as(prediction)).sum().item()/N)
-#         train_loss.update(loss.item())
-
-#         if verbose:
-#             if regression:
-#                 iterator.set_description('[Train] Epoch %d, Loss: %.5f' % (
-#                     epoch, train_loss.avg))
-#             else:
-#                 iterator.set_description('[Train] Epoch %d, Loss: %.5f, Acc: %.4f' % (
-#                     epoch, train_loss.avg, train_acc.avg))
-#     if regression:
-#         return train_loss.avg, None
-#     return train_loss.avg, train_acc.avg
 
 
 def validate_epoch(val_loader, model, criterion,
@@ -369,6 +304,10 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
         more_metrics = extra_options["more_metrics"]
     else:
         more_metrics = False
+
+    if train_config.random_restart_threshold: 
+        print(f"Using random restart for training. Threshold: {train_config.random_restart_threshold}")
+    
     # Wrap with dataparallel if requested
     if train_config.parallel:
         model = ch.nn.DataParallel(model)
@@ -400,10 +339,14 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
     else:
         criterion = nn.BCEWithLogitsLoss()
 
-    # tr_avg_prop =  train_loader.dataset.data[:, :, -1].mean()
-    # te_avg_prop =  test_loader.dataset.data[:, :, -1].mean()
-    # print(f"training average prop ratio: {tr_avg_prop}")
-    # print(f"test average prop ratio: {te_avg_prop}")
+    # # To confirm that the nan rows have been converted to the 0 rows
+    # breakpoint()
+    # data = train_loader.dataset.data
+    # zero_windows = (data == 0).all(dim=2)         # shape [N, T], bool
+    # total_zero_windows = int(zero_windows.sum())  # scalar count
+    # record_idx, window_idx = zero_windows.nonzero(as_tuple=True)
+    # records_with_zero = torch.unique(record_idx)
+    # num_records_with_zero = int(records_with_zero.numel())
 
     # LR Scheduler
     lr_scheduler = None
@@ -418,10 +361,6 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
             threshold=scheduler_config.threshold,
             cooldown=scheduler_config.cooldown,
             verbose=scheduler_config.verbose)
-
-    iterator = range(1, train_config.epochs + 1)
-    if not train_config.verbose:
-        iterator = tqdm(iterator)
 
     adv_config = None
     if train_config.misc_config is not None:
@@ -439,7 +378,19 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
         adv_config.epsilon_iter = 2.5 * adv_config.epsilon / adv_config.iters
 
     best_model, best_loss = None, np.inf
-    for epoch in iterator:
+
+    restart_patience = int(train_config.epochs * .5)
+    stagnation_counter = 0
+    prev_vloss = -float('inf')
+
+    total_epochs = train_config.epochs
+    current_epoch = 0
+    pbar = tqdm(total=total_epochs, disable=train_config.verbose)
+
+    while(current_epoch < total_epochs):
+        current_epoch += 1
+        epoch = current_epoch
+
         tloss, tacc = train_epoch(train_loader, model,
                                   criterion, optimizer, epoch,
                                   verbose=train_config.verbose,
@@ -497,6 +448,54 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
                 else:
                     iterator.set_description(
                         "train_acc: %.2f | val_acc: %.2f | adv_val_acc: %.2f" % (100 * tacc, 100 * vacc[0], 100 * vacc[1]))
+
+        pbar.update(1)
+
+        if train_config.random_restart_threshold:
+            if abs(prev_vloss - vloss) < train_config.random_restart_threshold: 
+                stagnation_counter += 1
+            else: 
+                stagnation_counter = 0
+            
+            prev_vloss = vloss
+
+            print(f"{abs(prev_vloss - vloss)}")
+            print(f"stagnation_counter: {stagnation_counter}")
+
+            if stagnation_counter >= restart_patience: 
+                print(warning_string(f"Validation accuracy stagnant for {stagnation_counter} epochs. Restarting training with random initialization."))
+                
+                # reset model weights
+                if hasattr(model, 'restart_parameters'):
+                    model.restart_parameters()
+                else:
+                    # Alternatively, apply a reset to all submodules that have reset_parameters()
+                    def weight_reset(m):
+                        if hasattr(m, 'reset_parameters'):
+                            m.reset_parameters()
+                    model.apply(weight_reset)
+
+                # reinitialize optimizer
+                optimizer = ch.optim.Adam(
+                    model.parameters(),
+                    lr=train_config.learning_rate,
+                    weight_decay=train_config.weight_decay)
+
+                # Optional: reset your LR scheduler if needed
+                if train_config.lr_scheduler is not None:
+                    lr_scheduler = ch.optim.lr_scheduler.ReduceLROnPlateau(
+                        optimizer,
+                        mode=scheduler_config.mode,
+                        factor=scheduler_config.factor,
+                        patience=scheduler_config.patience,
+                        threshold=scheduler_config.threshold,
+                        cooldown=scheduler_config.cooldown,
+                        verbose=scheduler_config.verbose)
+
+                current_epoch = 0
+                stagnation_counter = 0
+                pbar.reset(total=total_epochs)
+                continue
 
         vloss_compare = vloss
         if adv_config is not None:
