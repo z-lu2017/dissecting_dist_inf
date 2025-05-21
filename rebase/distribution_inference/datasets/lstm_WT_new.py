@@ -23,7 +23,7 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset, TensorDataset, 
 
 # Internal project modules
 from distribution_inference.config import TrainConfig, DatasetConfig
-from distribution_inference.models.core import MaskedLSTM
+from distribution_inference.models.core import SimpleLSTM
 import distribution_inference.datasets.base as base
 import distribution_inference.datasets.utils as utils
 from distribution_inference.training.utils import load_model
@@ -138,16 +138,16 @@ class DatasetInformation(base.DatasetInformation):
                          models_path="lstm_wt_new",
                          properties=["Blade_pitch", "Bp_wind"], 
                          values={"wind_turbines": ratios},
-                         supported_models=["MaskedLSTM"],
-                         default_model="MaskedLSTM",
+                         supported_models=["SimpleLSTM"],
+                         default_model="SimpleLSTM",
                          epoch_wise=epoch_wise)
         self.dataset = data_path
 
     def get_model(self, cpu: bool = True, model_arch: str = None) -> nn.Module:
         device = "cuda" if ch.cuda.is_available() else "cpu"
         model_arch = model_arch or self.default_model
-        if model_arch == "MaskedLSTM":
-            model = MaskedLSTM(30, 64, 1, use_dropout=False).to(device)
+        if model_arch == "SimpleLSTM":
+            model = SimpleLSTM(30, 64, 1, use_dropout=False).to(device)
         else:
             raise NotImplementedError("Model architecture not supported")
 
@@ -255,20 +255,20 @@ class _WindTurbinePower:
                 Xj, yj, tsj = ds._load_chunk(j)
 
                 times = pd.to_datetime(tsj)
-                mask = is_train(times)
+                train_mask = is_train(times)
 
                 size = cum[j+1] - local_start
                 gidx = np.arange(base + local_start, base + local_start + size)
 
-                train_idxs.extend(gidx[mask].tolist())
-                test_idxs.extend(gidx[~mask].tolist())
+                train_idxs.extend(gidx[train_mask].tolist())
+                test_idxs.extend(gidx[~train_mask].tolist())
 
         return train_idxs, test_idxs
 
 
     # Average WindSpeed thresholds: low<0.185, high>0.304
     def binarize_column(self, X, low_thresh=0.185, high_thresh=0.304, exclude_middle=True):
-        # assert not X.isnan().any(), "Error: Data should contain no nans. Should be 0.0 values in rows instead."
+        assert not X.isnan().any(), "Error: Data should not contain any NaN values. Check window creation."
         col = X[..., 0]
         labels = col.new_full(col.shape, 0.5, dtype=ch.long)
         labels[col < low_thresh] = 0
@@ -402,21 +402,6 @@ class _WindTurbinePower:
         x_te = ch.stack(xs_te)
         y_te = ch.stack(ys_te)
 
-        # set masks
-        mask_tr = ch.ones_like(x_tr, dtype=ch.float32)
-        mask_tr = mask_tr.masked_fill(ch.isnan(x_tr), 0.0)
-        mask_tr = mask_tr.all(dim=-1).to(dtype=mask_tr.dtype)
-
-        mask_te = ch.ones_like(x_te, dtype=ch.float32)
-        mask_te = mask_te.masked_fill(ch.isnan(x_te), 0.0)
-        mask_te = mask_te.all(dim=-1).to(dtype=mask_te.dtype)
-
-        # fill nans with 0s to ensure no nan errors in training
-        x_tr = ch.nan_to_num(x_tr, nan=0.0)
-        x_te = ch.nan_to_num(x_te, nan=0.0)
-        y_tr = ch.nan_to_num(y_tr, nan=0.0)
-        y_te = ch.nan_to_num(y_te, nan=0.0)
-
         # pull prop‐labels from your binned metas
         train_prop_labels = self.train_vic_meta if self.split=="victim" else self.train_adv_meta
         train_prop_labels = (
@@ -436,12 +421,9 @@ class _WindTurbinePower:
             .reshape(-1, 1)
         )
 
-        # TODO: The true proportion is actually different since we end up masking some 
-        # of the inputs ... might need to do the splitting after
-
         return (
-            (x_tr, y_tr, mask_tr, train_prop_labels),
-            (x_te, y_te, mask_te, test_prop_labels)
+            (x_tr, y_tr, train_prop_labels),
+            (x_te, y_te, test_prop_labels)
         ), (train_ids, test_ids)
 
 
@@ -483,12 +465,17 @@ class LSTMWindTurbineWrapper(base.CustomDatasetWrapper):
 
         # Initialize datasets with turbine data
         self.ds_train = WindTurbineDataset(
-            *train_data,  # Unpacks: X_bundle, y, prop_labels
+            train_data[0],  # X
+            train_data[1],  # y
+            train_data[2],  # prop_labels
             squeeze=self.squeeze,
             ids=self._used_for_train
         )
+
         self.ds_val = WindTurbineDataset(
-            *test_data,  # Using test split as validation
+            test_data[0],  # X
+            test_data[1],  # y
+            test_data[2],  # prop_labels
             squeeze=self.squeeze,
             ids=self._used_for_test
         )
@@ -570,11 +557,10 @@ class LSTMWindTurbineWrapper(base.CustomDatasetWrapper):
         return save_path
     
 class WindTurbineDataset(base.CustomDataset):
-    def __init__(self, data, targets, input_masks, prop_labels, squeeze=False, ids=None):
+    def __init__(self, data, targets, prop_labels, squeeze=False, ids=None):
         super().__init__()
         self.data = data                        # (e.g., time-series features)
         self.targets = targets
-        self.input_masks = input_masks          # Renamed to avoid conflict
         self.prop_labels = prop_labels
         self.squeeze = squeeze
         self.ids = ids
@@ -589,21 +575,15 @@ class WindTurbineDataset(base.CustomDataset):
 
     def __getitem__(self, index):
         index_ = self.selection_mask[index] if self.selection_mask is not None else index
-        x = self.data[index_]
+        X = self.data[index_]
         y = self.targets[index_]
-        input_mask = self.input_masks[index_]
         prop_label = self.prop_labels[index_]
 
         if self.squeeze:
             y = y.squeeze()
             prop_label = prop_label.squeeze()
 
-        data_bundle = {
-            "features": x, 
-            "mask": input_mask, 
-        }
-
-        return data_bundle, y, prop_label
+        return X, y, prop_label
 
 
 # def stream_and_select(

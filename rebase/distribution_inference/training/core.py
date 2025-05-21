@@ -47,15 +47,15 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
     if verbose:
         inner_iterator = tqdm(train_loader, desc=f'Epoch {epoch}', leave=False)
 
-    # data = train_loader.dataset.data
-    # zero_windows = (data == 0).all(dim=2)         # shape [N, T], bool
-    # total_zero_windows = int(zero_windows.sum())  # scalar count
-    # record_idx, window_idx = zero_windows.nonzero(as_tuple=True)
-    # records_with_zero = ch.unique(record_idx)
-    # num_records_with_zero = int(records_with_zero.numel())
+    data = train_loader.dataset.data
+    zero_windows = (data == 0).all(dim=2)         # shape [N, T], bool
+    total_zero_windows = int(zero_windows.sum())  # scalar count
+    record_idx, window_idx = zero_windows.nonzero(as_tuple=True)
+    records_with_zero = ch.unique(record_idx)
+    num_records_with_zero = int(records_with_zero.numel())
 
-    # print(records_with_zero)    
-    # print(num_records_with_zero)
+    print(records_with_zero)    
+    print(num_records_with_zero)
 
     for tuple in inner_iterator:
         # Extract data
@@ -63,8 +63,6 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
             data, labels, prop_labels = tuple
         else:
             data, labels = tuple
-
-        # print(sum(sum(data['mask'])))
         
         # Use shuffle defense, as per need
         if shuffle_defense:
@@ -338,15 +336,6 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
         criterion = nn.CrossEntropyLoss()
     else:
         criterion = nn.BCEWithLogitsLoss()
-
-    # # To confirm that the nan rows have been converted to the 0 rows
-    # breakpoint()
-    # data = train_loader.dataset.data
-    # zero_windows = (data == 0).all(dim=2)         # shape [N, T], bool
-    # total_zero_windows = int(zero_windows.sum())  # scalar count
-    # record_idx, window_idx = zero_windows.nonzero(as_tuple=True)
-    # records_with_zero = torch.unique(record_idx)
-    # num_records_with_zero = int(records_with_zero.numel())
 
     # LR Scheduler
     lr_scheduler = None

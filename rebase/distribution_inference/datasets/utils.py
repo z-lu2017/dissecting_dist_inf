@@ -15,7 +15,7 @@ import h5py
 from numpy.lib.stride_tricks import sliding_window_view
 
 
-from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface, lstm_wind_turbine, lstm_WT_new, lstm_WT_new_no_mask
+from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface, lstm_wind_turbine, lstm_WT_new
 
 DATASET_INFO_MAPPING = {
     "new_census": new_census.DatasetInformation,
@@ -27,7 +27,6 @@ DATASET_INFO_MAPPING = {
     "maadface": maadface.DatasetInformation,
     "lstm_wind_turbine": lstm_wind_turbine.DatasetInformation, 
     "lstm_WT_new": lstm_WT_new.DatasetInformation,
-    "lstm_WT_new_no_mask": lstm_WT_new_no_mask.DatasetInformation
 }
 
 DATASET_WRAPPER_MAPPING = {
@@ -40,7 +39,6 @@ DATASET_WRAPPER_MAPPING = {
     "maadface": maadface.MaadFaceWrapper,
     "lstm_wind_turbine": lstm_wind_turbine.LSTMWindTurbineWrapper,
     "lstm_WT_new": lstm_WT_new.LSTMWindTurbineWrapper,
-    "lstm_WT_new_no_mask": lstm_WT_new_no_mask.LSTMWindTurbineWrapper
 }
 
 GLOBAL_FILE_URLS = {
@@ -683,12 +681,6 @@ class data_farm:
                                                                 "SetYaw",
                                                             ]])
 
-        # for t in self.list_turbine_name:
-        #     df = getattr(self, t)
-        #     nan_rows = df.isna().any(axis=1)
-        #     df.loc[nan_rows, :] = 0.0
-        #     setattr(self, t, df)
-        
         # self.save_data()
 
 
@@ -918,47 +910,6 @@ class data_farm:
                 df[f"{c}_sin"] = sines
             setattr(self, t, df)
 
-    # def normalize_min_max(self, normalized_dict, cols):
-    #     global_stats = {} # using min/max w/ global values to maintain variability btw WTs
-        
-    #     for c in cols:
-    #         all_values = pd.concat([getattr(self, t)[c] for t in self.list_turbine_name])
-    #         global_stats[c] = (all_values.max(), all_values.min())
-        
-    #     for t in self.list_turbine_name:
-    #         normalized_dict[t] = {c: global_stats[c] for c in cols}
-    #         for c in cols:
-    #             col_max, col_min = global_stats[c]
-    #             getattr(self, t)[c] = (getattr(self, t)[c] - col_min) / (col_max - col_min)
-    #     with open(os.path.join(self.BASE_DIR, 'data_normalisation', f'min_max_normalisation_{self.dataset_name}.pkl'), 'wb') as f:
-    #         pickle.dump(normalized_dict, f)
-    
-    #     print(f"Global statistic for min, max normalization: {global_stats}")
-
-
-    # def normalize_mean_SD(self, normalized_dict, cols):
-    #     global_stats = {} # using min/max w/ global values to maintain variability btw WTs
-    #     for c in cols:
-    #         all_values = pd.concat([getattr(self, t)[c] for t in self.list_turbine_name])
-    #         global_stats[c] = (all_values.mean(), all_values.std())
-        
-    #     for t in self.list_turbine_name:
-    #         normalized_dict[t] = {c: global_stats[c] for c in cols}
-    #         for c in cols:
-    #             col_mean, col_SD = global_stats[c]
-    #             getattr(self, t)[c] = (getattr(self, t)[c] - col_mean) / col_SD
-    #     with open(os.path.join(self.BASE_DIR, 'data_normalisation', f'std_mean_normalisation_{self.dataset_name}.pkl'), 'wb') as f:
-    #         pickle.dump(normalized_dict, f)
-
-    #     print(f"Global statistic for mean, standard deviation normalization: {global_stats}")
-
-    # def circ_embedding(self, cols):
-    #     # Assuming that the unit is ° (0 to 360)
-    #     for t in self.list_turbine_name:
-    #         for c in cols:
-    #             getattr(self, t)[f"{c}_cos"] = np.cos(getattr(self,t)[c]*2*np.pi/360)
-    #             getattr(self, t)[f"{c}_sin"] = np.sin(getattr(self,t)[c]*2*np.pi/360)
-
     def drop_col(self, cols):
         for t in self.list_turbine_name:
             getattr(self,t).drop(columns = cols, inplace = True)
@@ -1012,6 +963,7 @@ class data_farm:
                 blocks = blocks[:-1]
 
             WINDOW_CHUNK = 10_000
+            nan_indices_removed = 0
 
             for block_idx, block in enumerate(blocks):
                 n_windows = len(block) - in_shift
@@ -1036,6 +988,9 @@ class data_farm:
                         # mask out any window that contains a nan for any feature and skip chunk
                         # if there are no valid rows
                         valid = ~np.isnan(windows_in).any(axis=(1,2))
+                        n_good = valid.sum()    
+                        n_total = windows_in.shape[0]
+                        nan_indices_removed += (n_total - n_good)
                         if not valid.any():
                             continue
 
@@ -1043,7 +998,7 @@ class data_farm:
                         filtered_out = windows_out[valid]
                         ts_chunk = np.array(rows[in_shift:])[valid].tolist()
 
-                        Xb = ch.tensor(filtered_in)
+                        Xb = ch.tensor(filtered_in).permute(0, 2, 1)
                         yb = ch.tensor(filtered_out)
 
                         turbine_folder = os.path.join(self.WINDOWED_DATA_PATH, f"{t}")
@@ -1057,41 +1012,8 @@ class data_farm:
 
                 except OSError:
                     continue
+            print(f"nan indices removed for {t}: {nan_indices_removed}")
 
-            
-            # # For each block make a dataset
-            # in_datasets = []
-            # out_datasets = []
-            # timestamps = []
-
-            # for block in blocks:
-            #     if len(block) > in_shift:
-            #         in_window = [in_data[i: i + in_shift +1] for i in range(len(block)-in_shift)]
-            #         out_window = [out_data[i+ in_shift] for i in range(len(block)-in_shift)]
-            #         timestamp = [block[i+in_shift] for i in range(len(block)-in_shift)]
-            #     else:
-            #         in_window = None
-            #         out_window = None
-            #         timestamp = None
-            #     if in_window is not None and out_window is not None and timestamp is not None:
-            #         in_datasets.append(in_window)
-            #         out_datasets.append(out_window)
-            #         timestamps.append(timestamp)
-
-            # # Concatenate the blocks
-            # if len(in_datasets) > 0:
-            #     in_window_full = np.concatenate(in_datasets)
-            #     out_window_full = np.concatenate(out_datasets)
-            #     time = np.concatenate(timestamps)
-            #     X, y = ch.Tensor(in_window_full), ch.Tensor(out_window_full)
-            #     ch.save(X, os.path.join(self.WINDOWED_DATA_PATH, f"{self.dataset_name}_{t}_X.pt"))
-            #     ch.save(y, os.path.join(self.WINDOWED_DATA_PATH, f"{self.dataset_name}_{t}_y.pt"))
-            #     with open(os.path.join(self.WINDOWED_DATA_PATH, f"{self.dataset_name}_{t}_timestamp.pkl"), "wb") as f:
-            #         pickle.dump(time, f)
-                
-            #     if ret:
-            #         return X,y,time
-    
 
 def process_data(
         dataset,
@@ -1258,6 +1180,7 @@ class preprocess_data_farm:
                 out_path = os.path.join(out_dir, f"WT_{tnum}.csv")
                 sub.to_csv(out_path, index=False)
 
+
     def get_Scotland_dataset(self):
 
         missing_years = []
@@ -1362,6 +1285,7 @@ class preprocess_data_farm:
         )
         shutil.rmtree(self.temp_dir)
 
+
     def download_zip_files(
         self,
         year: int,
@@ -1382,6 +1306,7 @@ class preprocess_data_farm:
                 f.write(chunk)
                 pbar.update(len(chunk))
 
+
     def move_archived_zip_files(
         self,
         year: int,
@@ -1392,6 +1317,7 @@ class preprocess_data_farm:
         os.makedirs(temp_year_dir, exist_ok=True)
     
         shutil.move(src=os.path.join(self.zip_archive_dir, f"{year}.zip"), dst=temp_year_dir)
+
 
     def process_global_file(
         self,
@@ -1421,6 +1347,7 @@ class preprocess_data_farm:
             shutil.move(src=out_path, dst=os.path.join(self.fault_dir, filename))
 
         return name
+
 
     def process_year_zip(
         self, 
