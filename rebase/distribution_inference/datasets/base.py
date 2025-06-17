@@ -309,6 +309,8 @@ class CustomDatasetWrapper:
             folder_path = self.get_save_dir(
                 train_config, model_arch=model_arch)
         model_paths = os.listdir(folder_path)
+        if train_config.model_limit and train_config.model_limit <= n_models: 
+            model_paths = sorted(model_paths, key=lambda fname: int(fname.split('_', 1)[0]))[:train_config.model_limit]
         if shuffle:
             model_paths = np.random.permutation(model_paths)
         total_models = len(model_paths) if n_models is None else n_models
@@ -346,6 +348,7 @@ class CustomDatasetWrapper:
         models = []
         mp = []
         before_ids, after_ids = [], []
+        
         with tqdm(total=total_models, desc="Loading models") as pbar:
             if len(n_failed) >= 5:
                 raise Exception(f"Had trouble loading {len(n_failed)} models ({n_failed}), aborting")

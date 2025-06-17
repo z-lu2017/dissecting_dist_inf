@@ -149,6 +149,12 @@ class FeatureConfig(Serializable):
     """Input features, including the target feature"""
     WT_IDs: List[str] = field(default_factory=list)
     """The wind turbine ids"""
+    victim_WT_IDs: Optional[List[str]] = field(default_factory=list)
+    """Optional list of WTs for the victim to use when specified"""
+    adv_WT_IDs: Optional[List[str]] = field(default_factory=list)
+    """Optional list of WTs for the adv to use when specified"""
+    use_group_ids: Optional[bool] = False
+    """Flag to indicate if victim and adv WT splits should be used or not"""
 
 @dataclass
 class DatasetConfig(Serializable):
@@ -331,6 +337,8 @@ class TrainConfig(Serializable):
     random_restart_threshold: Optional[float] = 0.0
     """Vloss/vacc threshold between epochs to trigger random restart if model stagnates."""
     """only implemented for regression task contexts"""
+    model_limit: Optional[int] = None
+    """Limit on the number of models used when those available>those desired"""
     # TODO: remove if remains irrelevant
     # validate: Optional[bool] = True
     # """Run validation during training"""

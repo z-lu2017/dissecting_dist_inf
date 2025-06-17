@@ -54,9 +54,6 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch,
     records_with_zero = ch.unique(record_idx)
     num_records_with_zero = int(records_with_zero.numel())
 
-    print(records_with_zero)    
-    print(num_records_with_zero)
-
     for tuple in inner_iterator:
         # Extract data
         if expect_extra:
@@ -368,7 +365,7 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
 
     best_model, best_loss = None, np.inf
 
-    restart_patience = int(train_config.epochs * .5)
+    restart_patience = int(train_config.epochs * .5) + 1
     stagnation_counter = 0
     prev_vloss = -float('inf')
 

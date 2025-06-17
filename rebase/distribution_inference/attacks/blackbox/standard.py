@@ -29,7 +29,6 @@ class LossAndThresholdAttack(Attack):
         
         if regression:
             def calc_regression_metric_mse(data, labels, multi_class=False):
-                print("using mse metric")
                 n_models = data.shape[1]
                 mse_scores = np.zeros(n_models)
                 for i in range(n_models):
@@ -51,6 +50,7 @@ class LossAndThresholdAttack(Attack):
                 return r2_scores
 
             # calc_acc = calc_regression_metric_r2
+            print("using mse metric")
             calc_acc = calc_regression_metric_mse
         
         # Get accuracies on first data distribution using prediction from shadow/victim models
