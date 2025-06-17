@@ -438,9 +438,7 @@ class WindTurbineDataset(Dataset):
 def create_dirs(base_dir):
     paths = [
         "temp", "data_normalisation", "data_prep",
-        "raw_data", "data_prep_faults_excluded", "fault_logs",
-        os.path.join("/scratch/ujx4ab", "data_prep"),
-        os.path.join("/scratch/ujx4ab", "data_prep_faults_excluded")
+        "raw_data", "data_prep_faults_excluded", "fault_logs"
     ]
     for path in paths:
         full_path = os.path.join(base_dir, path)
@@ -448,7 +446,7 @@ def create_dirs(base_dir):
 
 
 # TODO: actually pass in the keep directories instead of hardcoding
-def cleanup_dirs(base_dir, delete=["aggregate", "data_normalisation", "data_prep", "data_prep_faults_excluded"]):
+def cleanup_dirs(base_dir, delete=["aggregate", "data_prep", "data_prep_faults_excluded"]):
     for name in os.listdir(base_dir):
         full_path = os.path.join(base_dir, name)
         if os.path.isdir(full_path) and name in delete:
@@ -491,6 +489,7 @@ class data_farm:
             fault_check_cols,
             list_turbine_name, 
             BASE_DIR, 
+            sensitive_property,
             predicted_property,
             rename = None,
             exclude_fault_data = False,
@@ -504,15 +503,24 @@ class data_farm:
         self.list_turbine_name = list_turbine_name
         self.exclude_fault_data = exclude_fault_data
 
+        # TODO: make it so only the sensitive columns are stored and then appended to the base data when they are used
+        # makes it so edits can be made on them while running other code, but so that repetitive data is not being stored
+        # unnecessarily
         self.BASE_DIR = BASE_DIR
-        self.CLEANED_DATA_PATH = os.path.join(BASE_DIR, "data_prep") if not exclude_fault_data else os.path.join(BASE_DIR, "data_prep_faults_excluded")
-        self.WINDOWED_DATA_PATH = os.path.join("/scratch/ujx4ab", "data_prep") if not exclude_fault_data else os.path.join("/scratch/ujx4ab", "data_prep_faults_excluded")
+        self.CLEANED_DATA_PATH = os.path.join(BASE_DIR, sensitive_property) if not exclude_fault_data else os.path.join(BASE_DIR, sensitive_property + "faults_excluded")
+        self.WINDOWED_BASE = "/scratch/ujx4ab"
+        suffix = sensitive_property if not exclude_fault_data else f"{sensitive_property}_faults_excluded"
+        self.WINDOWED_DATA_PATH = os.path.join(self.WINDOWED_BASE, suffix)
+
+        # TODO: clean up this check and put it somewhere else
+        os.makedirs(self.CLEANED_DATA_PATH, exist_ok=True)
+        os.makedirs(self.WINDOWED_DATA_PATH, exist_ok=True)
 
         for t in self.list_turbine_name:
             print(f"Initializing {t}")
             self.initialize_data(t, rename)
         
-        self.prepare_edp_data() if dataset_name == "EDP" else self.prepare_scotland_data()
+        self.prepare_edp_data() if dataset_name == "EDP" else self.prepare_scotland_data(sensitive_property)
         self.X, self.y, self.timestamps = {t : None for t in self.list_turbine_name}, {t : None for t in self.list_turbine_name}, {t : None for t in self.list_turbine_name}
 
     def initialize_data(self, t, rename):
@@ -622,8 +630,67 @@ class data_farm:
 
         # self.save_data()
 
+    def create_new_feature(self, new_feature):
+        valid = ["WT_Misalignment", "WT_Time_Availability", "WT_Energy_Availability", "WT_Misalignment_3", "WT_Misalignment_5", "WT_Misalignment_10", "WT_Misalignment_real"]
+        if new_feature not in valid:
+            raise ValueError(f"Invalid feature {new_feature!r}, must be one of {valid}")
+
+        misalignment_features = ["WT_Misalignment", "WT_Misalignment_3", "WT_Misalignment_5", "WT_Misalignment_10", "WT_Misalignment_real"]
+        if new_feature in misalignment_features:
+            def _angular_diff(a, b):
+                return (a - b + 180) % 360 - 180
+
+            for t in self.list_turbine_name:
+                df = getattr(self, t)
+
+                wind_dir = df["WindDirection"].to_numpy(copy=False)
+                yaw = df["Yaw"].to_numpy(copy=False)
+
+                signed_err = _angular_diff(wind_dir, yaw)
+                misalignment = np.abs(signed_err)
+
+                df[new_feature] = misalignment
+
+                setattr(self, t, df)
+        
+        elif new_feature == "WT_Time_Availability":
+            CUT_IN  = 3.5   # m/s
+            CUT_OUT = 25.0
+
+            for t in self.list_turbine_name:
+                df = getattr(self, t)
+                df["WT_Time_Availability"] = ((df["Power"] > 0) | (df["WindSpeed"] < CUT_IN)).astype(int)
+                df.loc[df["WindSpeed"] > CUT_OUT, "WT_Time_Availability"] = 0
+                setattr(self, t, df)
+            
+        elif new_feature == "WT_Energy_Availability":
+            for t in self.list_turbine_name:
+                df = getattr(self, t)
+
+                # avoid division by zero ... when TargetPower == 0 ratio = 0
+                ratio = np.zeros(len(df), dtype=float)
+                mask  = df["TargetPower"].to_numpy(copy=False) != 0
+                ratio[mask] = (df.loc[mask, "Power"].to_numpy(copy=False)
+                            / df.loc[mask, "TargetPower"].to_numpy(copy=False))
+
+                df["WT_Energy_Availability"] = ratio
+                setattr(self, t, df)
+
+        else:
+            assert False, f"Error: {new_feature} not implemented to be created."
+
+
     # @profile
-    def prepare_scotland_data(self): 
+    def prepare_scotland_data(self, sensitive_property): 
+        created_new_feat = 0
+        if sensitive_property not in self.in_cols:
+            self.create_new_feature(sensitive_property)
+            self.in_cols.append(sensitive_property)
+            created_new_feat = 1
+
+        cols = self.out_cols + self.in_cols
+
+        # feature cuts for outliers
         self.feature_cut("WindSpeed", min=0, max=25, min_value=0)
         self.feature_cut("Power", min=0, max=2300, min_value=0, max_value=2300)
         self.feature_cut("Yaw", min=0, min_value=0, max_value=360)
@@ -631,57 +698,161 @@ class data_farm:
         self.feature_cut("GearboxBearingTempHSGenSide", min=0, max=65)
         self.feature_cut("GearboxBearingTempHSRotorSide", min=0, max=65)
 
-        cols = self.out_cols + self.in_cols
+        circular_cols = [c for c in cols if c in ("Yaw", "SetYaw")]
+        SD_cols = [c for c in cols if c.endswith("_SD")]
+        mean_cols = [c for c in cols if c not in SD_cols 
+                        and c not in circular_cols]
+        if created_new_feat: mean_cols.remove(sensitive_property)
+
+        self.drop_col([c for c in getattr(self, self.list_turbine_name[0]).columns if c not in cols])
+
+        pkl_path = os.path.join(
+            self.BASE_DIR, 'data_normalisation',
+            f'feature_stats_and_thresholds_{self.dataset_name}.pkl'
+        )
+
+        threshold_cols = ["WindSpeed", "WindSpeed_SD"]
+        if sensitive_property == "WT_Time_Availability" or sensitive_property == "WT_Energy_Availability": 
+            threshold_cols.append(sensitive_property)
+
+        # if file exists then make sure it has all the metrics, otherwise recompute
+        if os.path.exists(pkl_path):
+            with open(pkl_path, 'rb') as f:
+                stored = pickle.load(f)
+            stats = stored.get('stats', {})
+            quantiles = stored.get('quantiles', {})
+
+            missing_stats = set(mean_cols) - set(stats.keys())
+            missing_stats |= set(SD_cols) - set(stats.keys())
+            missing_quantiles = set(threshold_cols) - set(quantiles.keys())
+
+            if missing_stats or missing_quantiles: 
+                stats, quantiles = self.get_and_save_feature_stats_and_thresholds(mean_cols + SD_cols, threshold_cols)
+        else: 
+            stats, quantiles = self.get_and_save_feature_stats_and_thresholds(mean_cols + SD_cols, threshold_cols)
+
+        self.stats = stats
+        self.quantiles = quantiles
 
         # remove any duplicate indices
         for t in self.list_turbine_name:
             df = getattr(self, t)
             df = df[~df.index.duplicated()]
-            setattr(self, t, df)  # update the attribute
+            setattr(self, t, df)
 
-        self.drop_col([c for c in getattr(self, self.list_turbine_name[0]).columns if c not in cols])
         self.time_filling(interpolation_limit = 24)
 
-        # Normalization
+        # normalize data
         normalized_dict = {}
-        self.normalize_min_max(
-                                normalized_dict = normalized_dict,
-                                cols=[c for c in cols if c in [
-                                                                "WindSpeed", 
-                                                                "AmbientTemp",
-                                                                "MainShaftRPM",
-                                                                "BladePitchA",
-                                                                "BladePitchB",
-                                                                "BladePitchC",
-                                                                "RefBladePitchA",
-                                                                "RefBladePitchB",
-                                                                "RefBladePitchC",
-                                                                "GearOilTemp",
-                                                                "GearboxBearingTempHSGenSide",
-                                                                "GearboxBearingTempHSRotorSide",
-                                                                "Power"
-                                                             ]])
+        self.normalize_min_max(normalized_dict=normalized_dict,cols=mean_cols)
         self.normalize_mean_SD(
-                                normalized_dict = normalized_dict,
-                                cols=[c for c in cols if c in [
-                                                                "WindSpeed_SD",
-                                                                "Yaw_SD",
-                                                                "SetYaw_SD",
-                                                                "MainShaftRPM_SD",
-                                                                "BladePitchA_SD",
-                                                                "BladePitchB_SD",
-                                                                "BladePitchC_SD",
-                                                                "RefBladePitchA_SD",
-                                                                "RefBladePitchB_SD",
-                                                                "RefBladePitchC_SD",
-                                                                "Power_SD",
-                                                            ]])
-        self.circ_embedding(cols=[c for c in cols if c in [
-                                                                "Yaw",
-                                                                "SetYaw",
-                                                            ]])
+            normalized_dict=normalized_dict,
+            cols=SD_cols
+        )
+        self.circ_embedding(["Yaw", "SetYaw"])
 
         # self.save_data()
+
+    def get_and_save_feature_stats_and_thresholds(
+        self,
+        stat_cols,
+        threshold_cols,
+        low_q: float = 1/3,
+        high_q: float = 2/3,
+    ):
+        all_cols = list(dict.fromkeys(stat_cols + threshold_cols))
+        stats, quantiles = {}, {}
+
+        for c in tqdm(all_cols, desc="Calculating global statistics for each feature"):
+            mins, maxs = [], []
+            lqs, hqs   = [], []
+            for t in self.list_turbine_name:
+                arr = getattr(self, t)[c].to_numpy(copy=False)
+                mins.append(np.nanmin(arr))
+                maxs.append(np.nanmax(arr))
+                if c in threshold_cols:
+                    lqs.append(np.nanquantile(arr, low_q))
+                    hqs.append(np.nanquantile(arr, high_q))
+                    
+            gmin, gmax = min(mins), max(maxs)
+            stats[c] = (gmin, gmax)
+
+            if c in threshold_cols:
+                denom = (gmax - gmin) or 1.0
+                low_norm  = float((np.mean(lqs) - gmin) / denom)
+                high_norm = float((np.mean(hqs) - gmin) / denom)
+                print('low/high quantiles and gmin/gmax for ', c)
+                print(lqs, hqs)
+                print(gmin, gmax)
+                quantiles[c] = (low_norm, high_norm)
+        out_dir = os.path.join(self.BASE_DIR, 'data_normalisation')
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(
+            out_dir,
+            f'feature_stats_and_thresholds_{self.dataset_name}.pkl'
+        )
+        with open(path, 'wb') as f:
+            pickle.dump({'stats': stats, 'quantiles': quantiles}, f)
+
+        return stats, quantiles
+
+    def normalize_min_max(self, normalized_dict, cols):
+        global_stats = {c: self.stats[c] for c in cols}
+
+        for t in self.list_turbine_name:
+            df = getattr(self, t)
+            normalized_dict[t] = {c: global_stats[c] for c in cols}
+
+            block = df[cols].to_numpy(copy=False, dtype=np.float32)
+            mins = np.array([global_stats[c][0] for c in cols], dtype=np.float32)
+            maxs = np.array([global_stats[c][1] for c in cols], dtype=np.float32)
+            
+            block -= mins
+            block /= (maxs - mins)
+            df.loc[:, cols] = block
+            setattr(self, t, df)
+        
+        with open(os.path.join(self.BASE_DIR, 'data_normalisation',
+                               f'min_max_normalisation_{self.dataset_name}.pkl'),
+                  'wb') as f:
+            pickle.dump(normalized_dict, f)
+
+
+    def normalize_mean_SD(self, normalized_dict, cols):
+        global_stats = {c: self.stats[c] for c in cols}
+
+        for t in self.list_turbine_name:
+            df = getattr(self, t)
+            normalized_dict[t] = {c: global_stats[c] for c in cols}
+
+            block  = df[cols].to_numpy(copy=False, dtype=np.float32)
+            means  = np.array([global_stats[c][0] for c in cols], dtype=np.float32)
+            sds    = np.array([global_stats[c][1] for c in cols], dtype=np.float32)
+            block -= means
+            block /= sds
+
+            df.loc[:, cols] = block
+            setattr(self, t, df)
+
+        with open(os.path.join(self.BASE_DIR, 'data_normalisation',
+                               f'std_mean_normalisation_{self.dataset_name}.pkl'),
+                  'wb') as f:
+            pickle.dump(normalized_dict, f)
+
+    def circ_embedding(self, cols):
+        # do each turbine, each col, on numpy arrays
+        for t in self.list_turbine_name:
+            df = getattr(self, t)
+            for c in cols:
+                arr = df[c].to_numpy(copy=False, dtype=np.float32)
+                # compute in one go
+                radians = arr * (2 * np.pi / 360.0)
+                cosines = np.cos(radians)
+                sines   = np.sin(radians)
+                # assign new columns (avoiding pandas interim copies)
+                df[f"{c}_cos"] = cosines
+                df[f"{c}_sin"] = sines
+            setattr(self, t, df)
 
 
     def save_data(self, turbine = None):
@@ -691,36 +862,36 @@ class data_farm:
             print(f"saving {t} data to {save_path}")
             getattr(self, t).to_csv(save_path) 
     
-    def feature_cut(self, feature_name, min = None, max = None, min_value = "drop", max_value = "drop", turbine_name = None, verbose = False):
+    def feature_cut(self, feature, min = None, max = None, min_value = "drop", max_value = "drop", turbine_name = None, verbose = False):
         turbine = turbine_name if turbine_name is not None else self.list_turbine_name
 
         for t in turbine:
             df: pd.DataFrame = getattr(self, t)
-            assert feature_name in df.columns, f"Wrong feature name: {feature_name}"
+            assert feature in df.columns, f"Wrong feature name: {feature}"
             orig_len = len(df)
 
-            series = df[feature_name]
+            series = df[feature]
 
             if min is not None:
                 mask_min = series < min
                 if min_value == "drop":
                     df.drop(index=df.index[mask_min], inplace=True)
                 else:
-                    df.loc[mask_min, feature_name] = min_value
+                    df.loc[mask_min, feature] = min_value
             
-            series = df[feature_name]
+            series = df[feature]
             if max is not None:
                 mask_max = series > max
                 if max_value == "drop":
                     df.drop(index=df.index[mask_max], inplace=True)
                 else:
-                    df.loc[mask_max, feature_name] = max_value
+                    df.loc[mask_max, feature] = max_value
             
             if verbose:
-                print(f"Cutted {orig_len - len(df)} rows from {t} for {feature_name}")
+                print(f"Cutted {orig_len - len(df)} rows from {t} for {feature}")
             setattr(self, t, df)
 
-    def line_cut(self, input_feature_name, output_feature_name,
+    def line_cut(self, input_feature, output_feature,
                 a, b, xmin, xmax, under=True, turbine_name=None):
 
         turbines = turbine_name or self.list_turbine_name
@@ -728,13 +899,13 @@ class data_farm:
         for t in turbines:
             df = getattr(self, t)
             if under:
-                f = lambda x: (x[input_feature_name] <= xmin
-                            or a*x[input_feature_name] + b < x[output_feature_name]
-                            or x[input_feature_name] >= xmax)
+                f = lambda x: (x[input_feature] <= xmin
+                            or a*x[input_feature] + b < x[output_feature]
+                            or x[input_feature] >= xmax)
             else:
-                f = lambda x: (x[input_feature_name] <= xmin
-                            or a*x[input_feature_name] + b > x[output_feature_name]
-                            or x[input_feature_name] >= xmax)
+                f = lambda x: (x[input_feature] <= xmin
+                            or a*x[input_feature] + b > x[output_feature]
+                            or x[input_feature] >= xmax)
 
             keep = df.apply(f, axis=1)
             dropped = (~keep).sum()
@@ -743,18 +914,6 @@ class data_farm:
 
             setattr(self, t, df[keep])
 
-    # def line_cut(self, input_feature_name, output_feature_name, a, b, xmin, xmax, under = True, turbine_name = None):
-    #     turbine = turbine_name if turbine_name is not None else self.list_turbine_name
-        
-    #     for t in turbine:
-    #         assert input_feature_name in getattr(self, t).columns, f"Wrong feature name: {input_feature_name}"
-    #         assert output_feature_name in getattr(self, t).columns, f"Wrong feature name: {output_feature_name}"
-    #         if under:
-    #             f = lambda x: x[input_feature_name] <= xmin or a*x[input_feature_name] + b < x[output_feature_name] or x[input_feature_name] >= xmax
-    #         else:
-    #             f = lambda x: x[input_feature_name] <= xmin or a*x[input_feature_name] + b > x[output_feature_name] or x[input_feature_name] >= xmax
-    #         setattr(self, t, getattr(self, t)[getattr(self, t).apply(f, axis=1)])
-            
     def feature_averaging(self, name, input_names):
         for t in self.list_turbine_name:
             assert all([name in getattr(self,t).columns for name in input_names]), f"The input names are incorrect: {[name for name in input_names if name not in getattr(self,t).columns]}"
@@ -788,128 +947,6 @@ class data_farm:
                 self.in_cols.remove(remove_col)
         self.in_cols.append(name)
 
-    def normalize_min_max(self, normalized_dict, cols):
-        # compute global min/max per column 
-        global_stats = {}
-
-        # Only for WindSpeed quantile tracking
-        windspeed_low_qs = []
-        windspeed_high_qs = []
-        low_q, high_q = 0.33, 0.66
-
-        for c in cols:
-            gmin, gmax = np.inf, -np.inf
-            for t in self.list_turbine_name:
-                arr = getattr(self, t)[c].to_numpy(copy=False)
-                # skip NaNs
-                col_min = np.nanmin(arr)
-                col_max = np.nanmax(arr)
-                if col_min < gmin: gmin = col_min
-                if col_max > gmax: gmax = col_max
-
-                if c == "WindSpeed": 
-                    windspeed_low_qs.append(np.nanquantile(arr, low_q))
-                    windspeed_high_qs.append(np.nanquantile(arr, high_q))                    
-
-            global_stats[c] = (gmin, gmax)
-
-        # TODO: move this portion of the code to being post processing so that
-            # this doesn't have to run everytime i want to get the threshold
-        # Compute average quantile thresholds for WindSpeed
-        if windspeed_low_qs and windspeed_high_qs:
-            WindSpeed_min, WindSpeed_max = global_stats["WindSpeed"]
-            avg_low_thresh = float((np.mean(windspeed_low_qs) - WindSpeed_min)/(WindSpeed_max-WindSpeed_min))
-            avg_high_thresh = float((np.mean(windspeed_high_qs) - WindSpeed_min)/(WindSpeed_max-WindSpeed_min))
-            print(f"Average WindSpeed thresholds: low<{avg_low_thresh:.3f}, high>{avg_high_thresh:.3f}")
-            self.windspeed_thresholds = (avg_low_thresh, avg_high_thresh)
-
-        # apply normalization in one block per turbine
-        for t in self.list_turbine_name:
-            df = getattr(self, t)
-            # stats for this turbine
-            normalized_dict[t] = {c: global_stats[c] for c in cols}
-
-            block = df[cols].to_numpy(copy=False, dtype=np.float32)
-            mins = np.array([global_stats[c][0] for c in cols], dtype=np.float32)
-            maxs = np.array([global_stats[c][1] for c in cols], dtype=np.float32)
-            # in-place normalize
-            block -= mins
-            block /= (maxs - mins)
-            df.loc[:, cols] = block
-            setattr(self, t, df)
-        
-        with open(os.path.join(self.BASE_DIR, 'data_normalisation', 
-                            f'min_max_normalisation_{self.dataset_name}.pkl'), 'wb') as f:
-            pickle.dump(normalized_dict, f)
-
-        for c in cols:
-            if c == "WindSpeed":
-                for t in self.list_turbine_name:
-                    arr = getattr(self, t)[c].to_numpy(copy=False)
-                    low_q, high_q = 0.33, 0.66
-                    low_thresh = np.nanquantile(arr, low_q)
-                    high_thresh = np.nanquantile(arr, high_q)
-                    print(t)
-                    print(c)
-                    print(f"low, high: {low_thresh, high_thresh}\n")
-        
-        print(f"Global statistic for min, max normalization: {global_stats}")
-
-    def normalize_mean_SD(self, normalized_dict, cols):
-        # 1) compute global mean/SD per column WITHOUT pd.concat
-        global_stats = {}
-        for c in cols:
-            # accumulate sums & sums of squares across turbines
-            total_sum, total_sq, total_n = 0.0, 0.0, 0
-            for t in self.list_turbine_name:
-                arr = getattr(self, t)[c].to_numpy(copy=False, dtype=np.float32)
-                mask = ~np.isnan(arr)
-                vals = arr[mask]
-                total_sum += vals.sum()
-                total_sq  += (vals**2).sum()
-                total_n   += vals.size
-            mean = total_sum / total_n
-            # var = E[x^2] - E[x]^2
-            var  = total_sq/total_n - mean*mean
-            sd   = np.sqrt(var)
-            global_stats[c] = (mean, sd)
-
-        # 2) apply normalization in one block per turbine
-        for t in self.list_turbine_name:
-            df = getattr(self, t)
-            normalized_dict[t] = {c: global_stats[c] for c in cols}
-
-            block = df[cols].to_numpy(copy=False, dtype=np.float32)
-            means = np.array([global_stats[c][0] for c in cols], dtype=np.float32)
-            sds   = np.array([global_stats[c][1] for c in cols], dtype=np.float32)
-            block -= means
-            block /= sds
-
-            df.loc[:, cols] = block
-            setattr(self, t, df)
-
-        with open(os.path.join(self.BASE_DIR, 'data_normalisation',
-                            f'std_mean_normalisation_{self.dataset_name}.pkl'), 'wb') as f:
-            pickle.dump(normalized_dict, f)
-    
-        print(f"Global statistic for mean, standard deviation normalization: {global_stats}")
-
-
-    def circ_embedding(self, cols):
-        # do each turbine, each col, on numpy arrays
-        for t in self.list_turbine_name:
-            df = getattr(self, t)
-            for c in cols:
-                arr = df[c].to_numpy(copy=False, dtype=np.float32)
-                # compute in one go
-                radians = arr * (2 * np.pi / 360.0)
-                cosines = np.cos(radians)
-                sines   = np.sin(radians)
-                # assign new columns (avoiding pandas interim copies)
-                df[f"{c}_cos"] = cosines
-                df[f"{c}_sin"] = sines
-            setattr(self, t, df)
-
     def drop_col(self, cols):
         for t in self.list_turbine_name:
             getattr(self,t).drop(columns = cols, inplace = True)
@@ -934,6 +971,9 @@ class data_farm:
                         inplace=True)
 
             print(f"After fill, {name} shape:", df.shape)
+
+
+    # def create_new_var
 
     # @profile
     def make_window_data(self, in_shift, turbine = None, ret = False):
@@ -1015,9 +1055,14 @@ class data_farm:
             print(f"nan indices removed for {t}: {nan_indices_removed}")
 
 
+    def get_and_save_feature_thresholds(self): 
+        pass
+
+
 def process_data(
         dataset,
         BASE_DIR,
+        sensitive_property,
         predicted_property,  
         exclude_fault_data,
         cols, 
@@ -1026,6 +1071,8 @@ def process_data(
     ):
     print(f"Processing data for {dataset} {'WITH' if exclude_fault_data else 'WITHOUT'} faults.")
     print(f"The predicted property is {predicted_property}")
+    print(f"The sensitive property is {sensitive_property}")
+
 
     DATA_PATH = os.path.join(BASE_DIR, dataset)
     
@@ -1041,6 +1088,7 @@ def process_data(
             fault_check_cols = ['GenSpeed', 'RotorSpeed', 'Power'],
             list_turbine_name=WT_IDs,
             BASE_DIR=BASE_DIR,
+            sensitive_property=sensitive_property,
             predicted_property=predicted_property,
             rename=rename, 
             exclude_fault_data=exclude_fault_data,
@@ -1048,7 +1096,8 @@ def process_data(
         print("\nPreparing data windows")
         print(f"Saving data to {farm_edp.CLEANED_DATA_PATH}")
         farm_edp.make_window_data(in_shift=24*6)
-        return farm_edp.in_cols
+        return [c for c in farm_edp.in_cols if c in cols]
+
     
     # TODO: setup the renaming of variables in here not in the preprocess
     elif dataset == 'Scotland': 
@@ -1058,13 +1107,19 @@ def process_data(
             fault_check_cols=['MainShaftRPM', 'Power'],
             list_turbine_name=WT_IDs,
             BASE_DIR=BASE_DIR,
+            sensitive_property=sensitive_property,
             predicted_property=predicted_property,
             exclude_fault_data=exclude_fault_data,
         )
         print("\nPreparing data windows")
         print(f"Saving data to {farm_scotland.CLEANED_DATA_PATH}")
         farm_scotland.make_window_data(in_shift=24*6)
-        return farm_scotland.in_cols
+        # don't want to return the new feature if we create it
+        feature_list = [c for c in farm_scotland.in_cols if c in cols]
+        feat_path = os.path.join(farm_scotland.WINDOWED_DATA_PATH, "features_list.pkl")
+        with open(feat_path, "wb") as f:
+            pickle.dump(feature_list, f)
+        return feature_list
     else: 
         print(f"Invalid dataset {dataset} specified. Only EDP and Scotland currently implemented")
         

@@ -2,10 +2,6 @@ from distribution_inference.defenses.active.shuffle import ShuffleDefense
 from sklearn.model_selection import StratifiedShuffleSplit
 import sys
 
-#TODO: fix this/add classes to distribution inference as needed
-sys.path.append("/sfs/gpfs/tardis/home/ujx4ab/ondemand/dissecting_dist_inf/WF_Data/EDP/Data")
-from data_processing import data_farm  
-
 import os
 import pickle
 import pandas as pd
@@ -55,8 +51,8 @@ class DatasetInformation(base.DatasetInformation):
         return model
     
 class _WindTurbinePower:
-    def __init__(self, data_config, drop_senstive_cols=False):
-        self.drop_senstive_cols = drop_senstive_cols
+    def __init__(self, data_config, drop_sensitive_cols=False):
+        self.drop_senstivedrop_sensitive_cols_cols = drop_sensitive_cols
 
         self.data_config = data_config
         self.split = data_config.split 
@@ -136,8 +132,6 @@ class _WindTurbinePower:
             self.test_y = np.concatenate([test_y, self.train_y[train_ol_idx]])
             self.train_masks = np.concatenate([self.train_masks, test_masks[test_ol_idx]])
             self.test_masks = np.concatenate([test_masks, self.train_masks[train_ol_idx]])        
-
-        breakpoint()
 
         def compute_binned_features(X, y, masks):
             feature_values = X[:, :, -1]
@@ -355,7 +349,7 @@ class LSTMWindTurbineWrapper(base.CustomDatasetWrapper):
                          shuffle_defense=shuffle_defense)
         if not skip_data:
             # Initialize your WindTurbine data loader
-            self.ds = _WindTurbinePower(data_config, drop_senstive_cols=self.drop_senstive_cols)
+            self.ds = _WindTurbinePower(data_config, drop_sensitive_cols=self.drop_sensitive_cols)
         self.info_object = DatasetInformation(epoch_wise=epoch)
         
     def load_data(self, custom_limit=None, indexed_data=None):
@@ -464,7 +458,7 @@ class LSTMWindTurbineWrapper(base.CustomDatasetWrapper):
         if self.scale != 1.0:
             save_path = os.path.join(
                 self.scalesave_path, "sample_size_scale:{}".format(self.scale))
-        if self.drop_senstive_cols:
+        if self.drop_sensitive_cols:
             save_path = os.path.join(save_path, "drop")
 
         # Make sure this directory exists
