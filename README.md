@@ -1,5 +1,7 @@
-# Dissecting Distribution Inference
+# Quantifying Distribution Leakage in Wind Power Prediction Models
+Additions to the "Dissecting Distribution Inference" repository were made for the "Wind Data Sharing" project between the University of Virginia and the National Renewable Energy Laboratory. 
 
+# Dissecting Distribution Inference
 Code for our paper [Dissecting Distribution Inference](https://arxiv.org/pdf/2212.07591.pdf), appearing in SaTML 2023.
 
 Folder structure:

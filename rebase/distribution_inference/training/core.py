@@ -6,6 +6,7 @@ import torch.nn as nn
 import numpy as np
 from copy import deepcopy
 import os
+from itertools import product
 
 from distribution_inference.training.utils import AverageMeter, generate_adversarial_input, save_model, EarlyStopper
 from distribution_inference.config import TrainConfig, AdvTrainingConfig
@@ -226,7 +227,6 @@ def validate_epoch(val_loader, model, criterion,
             else:
                 print('[Validation], Loss: %.5f, Accuracy: %.4f | Adv-Loss: %.5f, Adv-Accuracy: %.4f' %
                       (val_loss.avg, val_acc.avg, adv_val_loss.avg, adv_val_acc.avg))
-        print()
     if more_metrics:
         precision = num_true_pos/num_pred_pos
         recall = num_true_pos/num_actual_pos
@@ -327,7 +327,7 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
         lr=train_config.learning_rate,
         weight_decay=train_config.weight_decay)
 
-    if train_config.regression:
+    if train_config.regression_task:
         criterion = nn.MSELoss()
     elif train_config.multi_class:
         criterion = nn.CrossEntropyLoss()
@@ -347,6 +347,63 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
             threshold=scheduler_config.threshold,
             cooldown=scheduler_config.cooldown,
             verbose=scheduler_config.verbose)
+
+    
+    # # TODO: move this somewhere else
+    # # For running a quic grid search while training a model
+    # lrs = [1e-3, 1e-4, 1e-5]
+    # wds = [0, 1e-6, 1e-5]
+    # num_epochs = [5, 10]
+
+    # best_score = float('inf')
+    # best_cfg   = None
+    # best_model = None
+
+    # for lr, wd, epochs in product(lrs, wds, num_epochs):
+    #     model_copy = deepcopy(model).cuda()
+    #     optimizer  = ch.optim.Adam(model_copy.parameters(), lr=lr, weight_decay=wd)
+    #     criterion  = nn.MSELoss() if train_config.regression_task else nn.BCEWithLogitsLoss()
+    
+    #     if val_loader is not None:
+    #         use_loader_for_metric_log = val_loader
+    #     else:
+    #         use_loader_for_metric_log = test_loader
+        
+    #     for epoch in range(1, epochs+1):
+    #         train_loss, _ = train_epoch(
+    #             train_loader,
+    #             model_copy,
+    #             criterion,
+    #             optimizer,
+    #             epoch,
+    #             verbose=False,
+    #             adv_config=train_config.misc_config.adv_config if train_config.misc_config else None,
+    #             expect_extra=train_config.expect_extra,
+    #             input_is_list=input_is_list,
+    #             regression=train_config.regression_task,
+    #             multi_class=train_config.multi_class,
+    #             shuffle_defense=shuffle_defense
+    #         )
+
+    #     val_loss, _ = validate_epoch(
+    #         use_loader_for_metric_log,
+    #         model_copy,
+    #         criterion,
+    #         verbose=False,
+    #         adv_config=train_config.misc_config.adv_config if train_config.misc_config else None,
+    #         expect_extra=train_config.expect_extra,
+    #         input_is_list=input_is_list,
+    #         regression=train_config.regression_task,
+    #         multi_class=train_config.multi_class
+    #     )
+
+    #     print(f"LR={lr}, WD={wd}, epochs={epochs} ... val_loss={val_loss:.4f}")
+    #     if val_loss < best_score:
+    #         best_score = val_loss
+    #         best_cfg = {'lr': lr, 'wd': wd, 'epochs': epochs}
+    #         best_model = deepcopy(model_copy)
+
+    # print("Best config:", best_cfg, ". val_loss:", best_score)
 
     adv_config = None
     if train_config.misc_config is not None:
@@ -383,7 +440,7 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
                                   adv_config=adv_config,
                                   expect_extra=train_config.expect_extra,
                                   input_is_list=input_is_list,
-                                  regression=train_config.regression,
+                                  regression=train_config.regression_task,
                                   multi_class=train_config.multi_class,
                                   shuffle_defense=shuffle_defense)
 
@@ -395,24 +452,26 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
             use_loader_for_metric_log = test_loader
 
         if more_metrics:
-            vloss, vacc, extra_metrics = validate_epoch(use_loader_for_metric_log,
-                                     model, criterion,
-                                     verbose=train_config.verbose,
-                                     adv_config=adv_config,
-                                     expect_extra=train_config.expect_extra,
-                                     input_is_list=input_is_list,
-                                     regression=train_config.regression,
-                                     multi_class=train_config.multi_class,
-                                     more_metrics=more_metrics)
+            vloss, vacc, extra_metrics = validate_epoch(
+                                    use_loader_for_metric_log,
+                                    model, criterion,
+                                    verbose=train_config.verbose,
+                                    adv_config=adv_config,
+                                    expect_extra=train_config.expect_extra,
+                                    input_is_list=input_is_list,
+                                    regression=train_config.regression_task,
+                                    multi_class=train_config.multi_class,
+                                    more_metrics=more_metrics)
         else:
-            vloss, vacc = validate_epoch(use_loader_for_metric_log,
-                                     model, criterion,
-                                     verbose=train_config.verbose,
-                                     adv_config=adv_config,
-                                     expect_extra=train_config.expect_extra,
-                                     input_is_list=input_is_list,
-                                     regression=train_config.regression,
-                                     multi_class=train_config.multi_class)
+            vloss, vacc = validate_epoch(
+                                    use_loader_for_metric_log,
+                                    model, criterion,
+                                    verbose=train_config.verbose,
+                                    adv_config=adv_config,
+                                    expect_extra=train_config.expect_extra,
+                                    input_is_list=input_is_list,
+                                    regression=train_config.regression_task,
+                                    multi_class=train_config.multi_class)
 
         # LR Scheduler, if requested
         if lr_scheduler is not None:
@@ -421,14 +480,14 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
         # Log appropriate metrics
         if not train_config.verbose:
             if adv_config is None:
-                if train_config.regression:
+                if train_config.regression_task:
                     iterator.set_description(
                         "train_loss: %.2f | val_loss: %.2f |" % (tloss, vloss))
                 else:
                     iterator.set_description(
                         "train_acc: %.2f | val_acc: %.2f | train_loss: %.3f | val_loss: %.3f" % (100 * tacc, 100 * vacc, tloss, vloss))
             else:
-                if train_config.regression:
+                if train_config.regression_task:
                     iterator.set_description(
                         "train_loss: %.2f | val_loss: %.2f | adv_val_loss: %.2f" % (tloss, vloss[0], vloss[1]))
                 else:
@@ -494,12 +553,12 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
         if train_config.save_every_epoch:
             # If adv training, suffix is a bit different
             if train_config.misc_config and train_config.misc_config.adv_config:
-                if train_config.regression:
+                if train_config.regression_task:
                     suffix = "_%.4f_adv_%.4f.ch" % (vloss[0], vloss[1])
                 else:
                     suffix = "_%.2f_adv_%.2f.ch" % (vacc[0], vacc[1])
             else:
-                if train_config.regression:
+                if train_config.regression_task:
                     suffix = "_tr%.4f_te%.4f.ch" % (tloss, vloss)
                 else:
                     suffix = "_tr%.2f_te%.2f.ch" % (tacc, vacc)
@@ -541,7 +600,7 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
             adv_config=adv_config,
             expect_extra=train_config.expect_extra,
             input_is_list=input_is_list,
-            regression=train_config.regression,
+            regression=train_config.regression_task,
             multi_class=train_config.multi_class,
             more_metrics=more_metrics)
         else:
@@ -552,7 +611,7 @@ def train_without_dp(model, loaders, train_config: TrainConfig,
             adv_config=adv_config,
             expect_extra=train_config.expect_extra,
             input_is_list=input_is_list,
-            regression=train_config.regression,
+            regression=train_config.regression_task,
             multi_class=train_config.multi_class,
             more_metrics=more_metrics)
     else:

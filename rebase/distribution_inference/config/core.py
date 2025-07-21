@@ -36,6 +36,13 @@ class RegressionConfig(Serializable):
     additional_values_to_test: Optional[List] = None
     """Values of property to use while testing in addition to ratios used to train"""
 
+@dataclass
+class PoisonConfig(Serializable):
+    """
+        Configuration for poison-based attacks
+    """
+    poison_rates: Optional[List] = None
+    """Rate of sensitive attribute poisoning data"""
 
 @dataclass
 class DPTrainingConfig(Serializable):
@@ -122,21 +129,17 @@ class WTDatasetConfigs(Serializable):
         The following are only relevant for the WindTurbine Datasets
     """
     download_data: Optional[bool] = False
+    # TODO: think this can be deleted and WT_IDs can be used instead, revisit
     """Whether or not to download the data from the EDP site (False assumes it is in datasets dir)"""
-    adv_vic_data_overlap_ratio: Optional[float] = 0.0
-    """Whether or not data can overlap between adv and victim models during training"""
-    train_test_data_overlap_ratio: Optional[float] = 0.0
-    """Whether or not data can overalp between training and test dataset"""
-    turbines: Optional[List[str]] = None
-    """List of wind turbines to use for dataset. Ex ["01", "06"], default is all"""
     training_timestamp_range: Optional[Tuple[str, str]] = None
     """Timestamp range to use for training dataset"""
     exclude_fault_data: Optional[bool] = False
     """When true, faulty data is removed from the dataset"""
     predicted_property: List[str] = None
     """The property being used in the prediction task"""
-    dataset: str = None
-    """The WT dataset to be used"""
+    low_q: Optional[int] = None
+    high_q: Optional[int] = None
+    "The low and upper percentile of the data to be used for the sensitive bins"
 
 @dataclass
 class FeatureConfig(Serializable):
@@ -191,8 +194,14 @@ class DatasetConfig(Serializable):
     """Configuration to be used for relation net training"""
     WT_config: Optional[WTDatasetConfigs] = None
     """Extra dataset configuraitons for WT models"""
-    feature_config: Dict[str, FeatureConfig] = field(default_factory=dict)
+    feature_config: Optional[FeatureConfig] = None
     """If using the WT datasets, details on the features to use in training"""
+    poison_rate: Optional[float] = 0.0
+    "poisoning rate of the data to aid in attack"
+    n_samples_train: Optional[int] = 100000
+    "number of samples used to train models"
+    n_samples_test: Optional[int] = 40000
+    "number of samples uses to validate models/run the attack"
 
 
 @dataclass
@@ -314,8 +323,8 @@ class TrainConfig(Serializable):
     """Save model after every epoch?"""
     extra_info: Optional[dict] = None
     """Optional dictionary to store misc information for dataset-specific args"""
-    regression: Optional[bool] = False
-    """Training for regression (MSE)"""
+    regression_task: Optional[str] = None
+    """Training for regression task (MSE)"""
     multi_class: Optional[bool] = False
     """Training for multi-class classification?"""
     label_noise: Optional[float] = 0
@@ -337,11 +346,10 @@ class TrainConfig(Serializable):
     random_restart_threshold: Optional[float] = 0.0
     """Vloss/vacc threshold between epochs to trigger random restart if model stagnates."""
     """only implemented for regression task contexts"""
-    model_limit: Optional[int] = None
-    """Limit on the number of models used when those available>those desired"""
-    # TODO: remove if remains irrelevant
-    # validate: Optional[bool] = True
-    # """Run validation during training"""
+    victim_model_limit: Optional[int] = None
+    """Limit on the number of vic models used when those available>those desired"""
+    adv_model_limit: Optional[int] = None
+    """victim_model_limit but for adv models"""
     
 
 @dataclass
@@ -425,9 +433,14 @@ class BlackBoxAttackConfig(Serializable):
     merlin_neighbors: Optional[int] = 100
     """Number of samples for noise in merlin-based probability estimation"""
 
-    regression: Optional[bool] = False
-    "If model task is regression instead of classification"
+    regression_task: Optional[bool] = False
+    """if regression task, metric to use (mse or asymmetric pinball)"""
+    return_props_labels: Optional[bool] = False
+    """if property labels should be returned when fetching prediction be used
+    for attacks that compare performance on sensitive/not sensitive property"""
 
+    poison_config: Optional[PoisonConfig] = None
+    "The poisoning rate being for poisoning attacks"
 
 @dataclass
 class PermutationAttackConfig(Serializable):
@@ -638,6 +651,11 @@ class AttackConfig(Serializable):
     """If not None, use this config for adv models and their data. Valid only for some attacks"""
     adv_value_fixed: Optional[Union[float, int, str]] = None
     """If not None, use this value for adv models and their data (regardless of victim ratio). Valid only for some attacks"""
+
+    use_hidden_state: Optional[bool] = False
+    """Use hidden state for KL divergence test in place of logits"""
+    use_cell_state: Optional[bool] = False
+    """Use cell state for KL divergence test in place of logits"""
 
 
 @dataclass

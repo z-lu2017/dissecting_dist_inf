@@ -118,6 +118,8 @@ def threshold_test_per_dist(calc_acc: Callable,
     pv1, pv2 = preds_victim.preds_property_1, preds_victim.preds_property_2
 
     # Get optimal order of point
+    # TODO: config.order_name can't be square for regression case ... uses logits
+    # normal abs(p2-p1) works tho for utility of real values
     order = order_points(p1, p2, config.order_name)
 
     # Order points according to computed utility
@@ -148,13 +150,13 @@ def threshold_test_per_dist(calc_acc: Callable,
         yg_use = yg_use.squeeze() 
 
         # Calculate accuracies for these points in [0,100]
+        # If regression task, this is mse, not a accuracy, but scalar works still
         accs_1 = 100 * calc_acc(p1_use, yg_use, multi_class=multi_class)
         accs_2 = 100 * calc_acc(p2_use, yg_use, multi_class=multi_class)
-
+    
         # tracc: distinguishing accuracy using threshold 
         # rule: 1 for ≥ theshold; 2 for ≤ threshold
-        tracc, threshold, rule = find_threshold_acc(
-            accs_1, accs_2, granularity=config.granularity)
+        tracc, threshold, rule = find_threshold_acc(accs_1, accs_2, granularity=config.granularity)
 
         # adv_accs indicates how often the theshold can distringuish between
         # the ratio that the two adv models was trained on (assume victim can't
@@ -166,10 +168,8 @@ def threshold_test_per_dist(calc_acc: Callable,
             accs_victim_2 = [100 * calc_acc(pv2_use_inside, yg_use, multi_class=multi_class)
                              for pv2_use_inside in pv2_use]
         else:
-            accs_victim_1 = 100 * \
-                calc_acc(pv1_use, yg_use, multi_class=multi_class)
-            accs_victim_2 = 100 * \
-                calc_acc(pv2_use, yg_use, multi_class=multi_class)
+            accs_victim_1 = 100 * calc_acc(pv1_use, yg_use, multi_class=multi_class)
+            accs_victim_2 = 100 * calc_acc(pv2_use, yg_use, multi_class=multi_class)
         if config.multi:
             accs_victim_1 = multi_model_sampling(accs_victim_1, config.multi)
             accs_victim_2 = multi_model_sampling(accs_victim_2, config.multi)
@@ -193,8 +193,7 @@ def threshold_test_per_dist(calc_acc: Callable,
                 combined = np.concatenate((accs_victim_1, accs_victim_2))
                 classes = np.concatenate(
                     (np.zeros_like(accs_victim_1), np.ones_like(accs_victim_2)))
-                specific_acc = get_threshold_acc(
-                    combined, classes, threshold, rule)
+                specific_acc = get_threshold_acc(combined, classes, threshold, rule)
             f_accs.append(100 * specific_acc)
 
     allaccs_1 = np.array(allaccs_1)

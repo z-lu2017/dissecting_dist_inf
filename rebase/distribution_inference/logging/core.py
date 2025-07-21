@@ -32,6 +32,8 @@ class Result:
             save_p = self.path.joinpath(f"{self.name}.p")
             with save_p.open('wb') as f:
                 pickle.dump(self.dic, f)
+        print(save_p)
+        print(f"Saving JSON to {save_p.resolve()}")
 
     def not_empty_dic(self, dic: dict, key):
         if key not in dic:

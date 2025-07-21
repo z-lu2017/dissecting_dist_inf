@@ -309,12 +309,22 @@ class CustomDatasetWrapper:
             folder_path = self.get_save_dir(
                 train_config, model_arch=model_arch)
         model_paths = os.listdir(folder_path)
-        if train_config.model_limit and train_config.model_limit <= n_models: 
-            model_paths = sorted(model_paths, key=lambda fname: int(fname.split('_', 1)[0]))[:train_config.model_limit]
+
+        if train_config.data_config.split == "victim": 
+            if train_config.victim_model_limit and train_config.victim_model_limit <= n_models: 
+                model_paths = sorted(model_paths, key=lambda fname: int(fname.split('_', 1)[0]))[:train_config.victim_model_limit]
+        else: 
+            if train_config.adv_model_limit and train_config.adv_model_limit <= n_models: 
+                model_paths = sorted(model_paths, key=lambda fname: int(fname.split('_', 1)[0]))[:train_config.adv_model_limit]
+
         if shuffle:
             model_paths = np.random.permutation(model_paths)
         total_models = len(model_paths) if n_models is None else n_models
         log(f"Available models: {total_models}")
+        print('-'*50)
+        print("MODELS USED:")
+        print(model_paths)
+        print('-'*50)
         return model_paths, folder_path, total_models
 
     def get_models(self,
@@ -342,7 +352,6 @@ class CustomDatasetWrapper:
             model_arch=model_arch,
             custom_models_path=custom_models_path)
         print(folder_path)
-        print(model_paths)
         i = 0
         n_failed = []
         models = []
@@ -356,6 +365,7 @@ class CustomDatasetWrapper:
             if epochwise_version:
                 model_paths = list(model_paths)
                 model_paths.sort(key=lambda i: int(i))
+            
             #epochs in ascending order
             for mpath in model_paths:
                 # Break reading if requested number of models is reached
@@ -363,8 +373,16 @@ class CustomDatasetWrapper:
                 if i >= n_models and not epochwise_version:
                     break
 
-                # Skip models with model_num below train_config.offset
-                if not (mpath.startswith("adv_train_") or mpath == "full" or mpath == "drop") and (not custom_models_path) and int(mpath.split("_")[0]) <= train_config.offset:
+                try:
+                    prefix = int(mpath.split("_", 1)[0])
+                except ValueError:
+                    prefix = None
+
+                # 2) short‐circuit for your always‐allow cases
+                if mpath.startswith("adv_train_") or mpath in ("full", "drop") or custom_models_path:
+                    pass  # always process these
+                # 3) otherwise, if we got a numeric prefix and it's <= offset, skip it
+                elif prefix is not None and prefix <= train_config.offset:
                     continue
 
                 # Skip any directories we may stumble upon

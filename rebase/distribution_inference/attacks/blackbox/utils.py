@@ -6,8 +6,6 @@ import numpy as np
 import torch as ch
 import gc
 
-from distribution_inference.datasets.lstm_wind_turbine import WindTurbineDataset
-
 from distribution_inference.attacks.blackbox.per_point import PerPointThresholdAttack
 from distribution_inference.attacks.blackbox.standard import LossAndThresholdAttack
 from distribution_inference.attacks.blackbox.core import PredictionsOnOneDistribution
@@ -119,10 +117,14 @@ def get_graph_preds(ds, indices,
 
 
 def get_preds(loader, models: List[nn.Module],
-              preload: bool = False,
-              verbose: bool = True,
-              multi_class: bool = False,
-              latent: int = None):
+                preload: bool = False,
+                verbose: bool = True,
+                multi_class: bool = False,
+                latent: int = None,
+                return_props_labels: bool = False,
+                use_hidden_state: bool = False,
+                use_cell_state: bool = False
+            ):
     """
         Get predictions for given models on given data
     """
@@ -139,48 +141,50 @@ def get_preds(loader, models: List[nn.Module],
     ground_truth = []
     inputs = []
 
-    # Accumulate all data for given loader
-    if isinstance(loader.dataset, WindTurbineDataset):
-        for data in loader:
-            data_bundle, labels, _ = data
-            ground_truth.append(labels.cpu().numpy())
-            if preload: 
-                for i in data_bundle: 
-                    data_bundle[i] = data_bundle[i].to("cuda")
-                inputs.append(data_bundle)
-    else: 
-        for data in loader:
-            if len(data) == 2:
-                features, labels = data
-            else:
-                features, labels, _ = data
-            ground_truth.append(labels.cpu().numpy())
-            if preload:
-                inputs.append(features.cuda())
+    prop_labels = [] if return_props_labels else None
+
+    for data in loader:
+        if len(data) == 2:
+            features, labels = data
+        else:
+            features, labels, property_labels = data
+
+        ground_truth.append(labels.cpu().numpy())
+        if return_props_labels:
+            prop_labels.append(property_labels.cpu().numpy())
+        if preload:
+            inputs.append(features.cuda())
+
     ground_truth = np.concatenate(ground_truth, axis=0)
+    if return_props_labels:
+        prop_labels = np.concatenate(prop_labels, axis=0)
 
     # Get predictions for each model
     iterator = models
     if verbose:
         iterator = tqdm(iterator, desc="Generating Predictions")
     for model in iterator:
-        # Shift model to GPU
         model = model.cuda()
-        # Make sure model is in evaluation mode
         model.eval()
-        # Clear GPU cache
         ch.cuda.empty_cache()
 
         with ch.no_grad():
             predictions_on_model = []
 
-            # Skip multiple CPU-CUDA copy ops
             if preload:
                 for data_batch in inputs:
                     if latent != None:
-                        prediction = model(data_batch, latent=latent).detach()
+                            prediction = model(data_batch, latent=latent).detach()
                     else:
-                        prediction = model(data_batch).detach()
+                        # TODO: figure out use hidden for other logic branches
+                        if use_hidden_state: 
+                            prediction = model(data_batch, return_hidden=use_hidden_state).detach()
+                            prediction = prediction.squeeze()
+                        elif use_cell_state:
+                            prediction = model(data_batch, return_cell=use_cell_state).detach()
+                            prediction = prediction.squeeze()
+                        else: 
+                            prediction = model(data_batch).detach()
 
                         # If None for whatever reason, re-run
                         # Weird bug that pops in every now and then
@@ -198,7 +202,6 @@ def get_preds(loader, models: List[nn.Module],
                 # Iterate through data-loader
                 for data in loader:
                     data_points, labels, _ = data
-                    # Get prediction
                     if latent != None:
                         prediction = model(data_points.cuda(), latent=latent).detach()
                     else:
@@ -220,7 +223,7 @@ def get_preds(loader, models: List[nn.Module],
     gc.collect()
     ch.cuda.empty_cache()
 
-    return predictions, ground_truth
+    return predictions, ground_truth, prop_labels
 
 
 def _get_preds_accross_epoch(models,
@@ -257,8 +260,14 @@ def _get_preds_for_vic_and_adv(
         loader,
         epochwise_version: bool = False,
         preload: bool = False,
-        multi_class: bool = False):
-
+        multi_class: bool = False,
+        return_props_labels: bool = False,
+        regression_task: bool = False,
+        use_hidden_state: bool = False, 
+        use_cell_state: bool = False
+        ):
+            
+    return_props_labels = True
     # Sklearn models do not support logits- take care of that
     use_prob_adv = models_adv[0].is_sklearn_model
     if epochwise_version:
@@ -268,7 +277,7 @@ def _get_preds_for_vic_and_adv(
     not_using_logits = use_prob_adv or use_prob_vic
 
     if type(loader) == tuple:
-        #  Same data is processed differently for vic/adcv
+        # Same data is processed differently for vic/adv
         loader_vic, loader_adv = loader
     else:
         # Same loader
@@ -279,11 +288,14 @@ def _get_preds_for_vic_and_adv(
         exp = np.exp(x)
         return exp / (1 + exp)
 
+    # check loader
+    prop_labels = None
     # Get predictions for adversary models and data
-    preds_adv, ground_truth_repeat = get_preds(
+    preds_adv, ground_truth_repeat, prop_labels = get_preds(
         loader_adv, models_adv, preload=preload,
-        multi_class=multi_class)
-    if not_using_logits and not use_prob_adv:
+        multi_class=multi_class, return_props_labels=return_props_labels,
+        use_hidden_state=use_hidden_state, use_cell_state=use_cell_state)
+    if not regression_task and not_using_logits and not use_prob_adv:
         preds_adv = to_preds(preds_adv)
 
     # Get predictions for victim models and data
@@ -291,22 +303,26 @@ def _get_preds_for_vic_and_adv(
         # Track predictions for each epoch
         preds_vic = []
         for models_inside_vic in tqdm(models_vic):
+            # TODO: fix this to handle return prop lables. atm regression task will never do this
+            # TODO: fix this to handle hidden state/cell state, same as above
             preds_vic_inside, ground_truth = get_preds(
                 loader_vic, models_inside_vic, preload=preload,
                 verbose=False, multi_class=multi_class)
-            if not_using_logits and not use_prob_vic:
+            if not regression_task and not_using_logits and not use_prob_vic:
                 preds_vic_inside = to_preds(preds_vic_inside)
 
             # In epoch-wise mode, we need prediction results
             # across epochs, not models
             preds_vic.append(preds_vic_inside)
     else:
-        preds_vic, ground_truth = get_preds(
+        preds_vic, ground_truth, _ = get_preds(
             loader_vic, models_vic, preload=preload,
-            multi_class=multi_class)
+            multi_class=multi_class, use_hidden_state=use_hidden_state,
+            use_cell_state=use_cell_state)
+    
     assert np.all(ground_truth ==
                   ground_truth_repeat), "Val loader is shuffling data!"
-    return preds_vic, preds_adv, ground_truth, not_using_logits
+    return preds_vic, preds_adv, ground_truth, not_using_logits, prop_labels
 
 
 def get_vic_adv_preds_on_distr_seed(
@@ -350,7 +366,12 @@ def get_vic_adv_preds_on_distr(
         epochwise_version: bool = False,
         preload: bool = False,
         multi_class: bool = False,
-        make_processed_version: bool = False):
+        make_processed_version: bool = False,
+        return_props_labels: bool = False,
+        regression_task: bool = False, 
+        use_hidden_state: bool = False,
+        use_cell_state: bool = False
+        ):
 
     # Check if models are graph-related
     are_graph_models = False
@@ -367,8 +388,7 @@ def get_vic_adv_preds_on_distr(
         loader_vic = (data_ds, test_idx)
         loader_adv = loader_vic
     else:
-        loader_for_shape, loader_vic = ds_obj.get_loaders(batch_size=batch_size) #HERE!
-        # This line doesn't appear to be used at assignment ... will keep here for now
+        loader_for_shape, loader_vic = ds_obj.get_loaders(batch_size=batch_size)
         # adv_datum_shape = next(iter(loader_for_shape))[0].shape[1:]
         if make_processed_version:
             # Make version of DS for victim that processes data
@@ -376,36 +396,46 @@ def get_vic_adv_preds_on_distr(
             adv_datum_shape = ds_obj.prepare_processed_data(loader_vic)
             loader_adv = ds_obj.get_processed_val_loader(batch_size=batch_size)
         else:
-            # Get val data loader (should be same for all models, since get_loaders() gets new data for every call)
-            # this loader uses data same data used for val when training models. 
-            # currently no instances of holdout set that I see
             loader_adv = loader_vic
 
-        # TODO: Use preload logic here to speed things even more
+    # TODO: Use preload logic here to speed things even more
     # Get predictions for first set of models
-    preds_vic_1, preds_adv_1, ground_truth, not_using_logits = _get_preds_for_vic_and_adv(
+    preds_vic_1, preds_adv_1, ground_truth, not_using_logits, prop_labels = _get_preds_for_vic_and_adv(
         models_vic[0], models_adv[0],
-        (loader_vic, loader_adv),
+        (loader_vic, loader_adv),  # both loaders are from same adversarial distribution
         epochwise_version=epochwise_version,
         preload=preload,
-        multi_class=multi_class)
+        multi_class=multi_class,
+        return_props_labels=return_props_labels,
+        regression_task=regression_task,
+        use_hidden_state=use_hidden_state,
+        use_cell_state=use_cell_state)
     # Get predictions for second set of models
-    preds_vic_2, preds_adv_2, _, _ = _get_preds_for_vic_and_adv(
-        models_vic[1], models_adv[1],
-        (loader_vic, loader_adv),
-        epochwise_version=epochwise_version,
-        preload=preload,
-        multi_class=multi_class)
+    if models_vic[1] is not None and models_adv[1] is not None:
+        preds_vic_2, preds_adv_2, _, _, _ = _get_preds_for_vic_and_adv(
+            models_vic[1], models_adv[1],
+            (loader_vic, loader_adv),
+            epochwise_version=epochwise_version,
+            preload=preload,
+            multi_class=multi_class,
+            return_props_labels=return_props_labels,
+            regression_task=regression_task,
+            use_hidden_state=use_hidden_state,
+            use_cell_state=use_cell_state)
 
-    adv_preds = PredictionsOnOneDistribution(
-        preds_property_1=preds_adv_1,
-        preds_property_2=preds_adv_2
-    )
-    vic_preds = PredictionsOnOneDistribution(
-        preds_property_1=preds_vic_1,
-        preds_property_2=preds_vic_2
-    )
-    return adv_preds, vic_preds, ground_truth, not_using_logits
+        adv_preds = PredictionsOnOneDistribution(
+            preds_property_1=preds_adv_1,
+            preds_property_2=preds_adv_2
+        )
+        vic_preds = PredictionsOnOneDistribution(
+            preds_property_1=preds_vic_1,
+            preds_property_2=preds_vic_2
+        )
+        return adv_preds, vic_preds, ground_truth, not_using_logits, prop_labels
+    
+    else: 
+        print("Only getting prediction for 1 Adv and 1 Victim Model")
+        return preds_adv_1, preds_vic_1, ground_truth, not_using_logits, prop_labels
 
 
 def compute_metrics(dataset_true, dataset_pred,

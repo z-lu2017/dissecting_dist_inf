@@ -61,60 +61,7 @@ class BaseModel(nn.Module):
     def acc(self, x, y):
         return self.model.score(x, y)
 
-""" Adding LSTM model which is not graph model or sklearn model"""
-class MaskedLSTM(BaseModel):
-    def __init__(self, 
-                input_size=30, #TODO: fix this hardcoding
-                hidden_size=64, 
-                output_size=1, 
-                use_dropout=False, 
-                dropout_prob=0.2):
-        super().__init__(is_conv=False, transpose_features=True, is_sklearn_model=False)
-        self.hidden_size = hidden_size
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
-        self.dropout = nn.Dropout(p=dropout_prob) if use_dropout else nn.Identity()
-        self.fc = nn.Linear(hidden_size, output_size)
-
-        self._init_weights()
-
-    def _init_weights(self):
-        for name, param in self.named_parameters():
-            if "weight" in name:
-                nn.init.xavier_normal_(param)
-            elif "bias" in name:
-                nn.init.constant_(param, 0.1)
-
-    def restart_parameters(self):
-        self._init_weights()
-
-    def forward(self, x_bundle):
-        x = x_bundle["features"]
-        mask = x_bundle["mask"]
-
-        batch_size, seq_len, nbr_of_features = x.size() 
-        
-        h = ch.zeros(1, batch_size, self.hidden_size).to(x.device)
-        c = ch.zeros(1, batch_size, self.hidden_size).to(x.device)
-
-        mask = mask.float()  
-        
-        for t in range(seq_len):
-            x_t = x[:, t:t+1, :]
-            mask_t = mask[:, t]
-
-            x_t = x_t * mask_t.view(batch_size, 1, 1).float()
-
-            _, (h_new, c_new) = self.lstm(x_t, (h, c))
-
-            mask_h = mask_t.view(1, batch_size, 1).float()
-            
-            h = mask_h * h_new + (1 - mask_h) * h
-            c = mask_h * c_new + (1 - mask_h) * c
-            
-        result = ch.relu(self.fc(self.dropout(h.squeeze(0))))
-        return result
-
-""" Adding LSTM model which is not graph model or sklearn model"""
+""" Simple LSTM model (not graph model or sklearn model)"""
 class SimpleLSTM(BaseModel):
     def __init__(self, 
                 input_size=30, #TODO: fix this hardcoding
@@ -133,19 +80,29 @@ class SimpleLSTM(BaseModel):
         for name, param in self.named_parameters():
             if "weight" in name:
                 nn.init.xavier_normal_(param)
+            # TODO: consider changing the different gates initial weight
             elif "bias" in name:
                 nn.init.constant_(param, 0.1)
 
     def restart_parameters(self):
         self._init_weights()
 
-    def forward(self, x: ch.Tensor):
-        output, (h_n, _) = self.lstm(x)  
-        # h_n is (num_layers * num_directions, batch, hidden_size)
-        last_hidden = h_n[-1]
+    def forward(
+            self, x: ch.Tensor, 
+            return_hidden: bool = False, 
+            return_cell: bool = False
+        ):
+        output, (h_n, c_n) = self.lstm(x)  
+        last_hidden = h_n[-1]  # shape: (batch, hidden_size)
         dropped = self.dropout(last_hidden)
-        return ch.relu(self.fc(dropped))  # (batch, output_size)
+        prediction = ch.relu(self.fc(dropped))  # (batch, output_size)
 
+        if return_hidden:
+            return h_n
+        if return_cell: 
+            return c_n
+        else:
+            return prediction
 
 class SVMClassifier(BaseModel):
     def __init__(self,

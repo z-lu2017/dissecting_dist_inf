@@ -8,24 +8,18 @@
 #SBATCH --cpus-per-task=1                   # number of CPU cores per task
 #SBATCH --gres=gpu:1                        # gpu devices per node
 #SBATCH --partition=gpu                     # partition
-#SBATCH --mem=32G                           # memory (cpu)
-#SBATCH -J "Train (lstm_wind_turbine/Bp_bin/adv/0.0/50)"
-#SBATCH --mail-user=ujx4ab@virginia.edu     # email address
+#SBATCH --constraint="a6000|v100|a100|a40"
+#SBATCH --mem=128G                          # memory (cpu)
 #SBATCH --account=uvasrg_paid               # allocation name
 #SBATCH -o slurm_results/train_models-%u-%j.out
 #SBATCH -e slurm_results/train_models-%u-%j.err
 
-# LOAD MODULES, INSERT CODE, AND RUN YOUR PROGRAMS HERE
-export DATASET="lstm_wind_turbine"
-export TRAIN_CONFIG="train_models.json"
-
-# Activate virtual environment
+# Activate venv, replace source path
 source /home/ujx4ab/ondemand/dissecting_dist_inf/.venv/bin/activate
-
-# Make sure the cuda is loaded
 module load cuda/12.4.1
+cd /home/ujx4ab/ondemand/dissecting_dist_inf/experiments/
 
-# Run your Python script
-time python /home/ujx4ab/ondemand/dissecting_dist_inf/experiments/train_models.py \
-  --load_config /home/ujx4ab/ondemand/dissecting_dist_inf/experiments/configs/$DATASET/$TRAIN_CONFIG \
-  --gpu 0
+# Run training
+time python train_models.py \
+    --load_config "$TRAIN_CONFIG" \
+    --gpu 0

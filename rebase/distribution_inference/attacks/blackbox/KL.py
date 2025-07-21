@@ -7,12 +7,15 @@ from distribution_inference.attacks.blackbox.core import Attack, PredictionsOnDi
 
 class KLAttack(Attack):
     def attack(self,
-               preds_adv: PredictionsOnDistributions,
-               preds_vic: PredictionsOnDistributions,
-               ground_truth: Tuple[List, List] = None,
-               calc_acc: Callable = None,
-               epochwise_version: bool = False,
-               not_using_logits: bool = False):
+                preds_adv: PredictionsOnDistributions,
+                preds_vic: PredictionsOnDistributions,
+                ground_truth: Tuple[List, List] = None,
+                calc_acc: Callable = None,
+                epochwise_version: bool = False,
+                not_using_logits: bool = False,
+                regression_task: bool = False,
+            ):
+        self.regression_task = True
         assert not (
             self.config.multi2 and self.config.multi), "No implementation for both multi model"
         assert not (
@@ -99,7 +102,6 @@ class KLAttack(Attack):
         # print(f"Accuracy: {acc}")
         
         preds = np.mean(preds, 1)   
-        print(preds)     
         gt = np.concatenate((np.zeros(preds_first.shape[0]), np.ones(preds_second.shape[0])))
         decision = 100 * np.mean((preds >= 0.5) == gt)
 
@@ -121,7 +123,16 @@ class KLAttack(Attack):
         ka_, kb_ = ka, kb
         kc1_, kc2_ = kc1, kc2
         if not self.not_using_logits:
-            if self.config.multi_class:
+            if self.regression_task: 
+                def z_norm_np(state, eps = 1e-5):
+                    mean = np.mean(state, axis=-1, keepdims=True)
+                    var  = np.var(state,  axis=-1, keepdims=True)
+                    return (state - mean) / np.sqrt(var + eps)
+                ka_norm, kb_norm = z_norm_np(ka), z_norm_np(kb)
+                kc1_norm, kc2_norm = z_norm_np(kc1), z_norm_np(kc2)
+                ka_, kb_ = softmax(ka_norm), softmax(kb_norm)
+                kc1_, kc2_ = softmax(kc1_norm), softmax(kc2_norm)
+            elif self.config.multi_class:
                 ka_, kb_ = softmax(ka), softmax(kb)
                 kc1_, kc2_ = softmax(kc1), softmax(kc2)
             else:
@@ -140,19 +151,15 @@ class KLAttack(Attack):
             ka_, kb_ = ka_[:, ordering], kb_[:, ordering]
             kc1_, kc2_ = kc1_[:, ordering], kc2_[:, ordering]
 
-        # Consider all unique pairs of models
+        # Consider all unique pairs of models (n choose 2)
         xx, yy = np.triu_indices(ka.shape[0], k=1)
         # Randomly pick pairs of models
         random_pick = np.random.permutation(
             xx.shape[0])[:int(self.config.kl_frac * xx.shape[0])]
         xx, yy = xx[random_pick], yy[random_pick]
 
-        # Compare the KL divergence between the two distributions
-        # For both sets of victim models
-        # Treats the adv distribution as the reference distribution sum(ka_(x)*log(ka_(x)/kc1_(x)))
-            # distribution is the 25000 data points ... have 5 sets of these to compare
-            # each data point is a distribution itself, but a kl divergence score is computed for each one of these seperately
-            # (at least in the binary case) and then concatenated together
+        # KL_vals_1_a = nbr adv models x nbr vic model matrix (rows = adv models, columns = vic models)
+        # adv model always treated as the reference distribution
         KL_vals_1_a = np.array(
             [KL(ka_, x, multi_class=self.config.multi_class) for x in kc1_])
         self._check(KL_vals_1_a)
@@ -169,13 +176,10 @@ class KLAttack(Attack):
             [KL(kb_, x, multi_class=self.config.multi_class) for x in kc2_])
         self._check(KL_vals_2_b)
 
-        breakpoint()
         preds_first = self._pairwise_compare(
             KL_vals_1_a, KL_vals_1_b, xx, yy)
         preds_second = self._pairwise_compare(
             KL_vals_2_a, KL_vals_2_b, xx, yy)
-
-        breakpoint()
 
         # Compare KL values
         return preds_first, preds_second
@@ -258,7 +262,6 @@ def softmax(x):
     exp = np.exp(z)
     return exp / np.sum(exp, -1, keepdims=True)
 
-
 def KL(x, y, multi_class: bool = False):
     small_eps = 1e-4
     x_ = np.clip(x, small_eps, 1 - small_eps)
@@ -266,15 +269,7 @@ def KL(x, y, multi_class: bool = False):
     if multi_class:
         return np.mean(np.sum(x_ * (np.log(x_) - np.log(y_)),axis=2),axis=1)
     else:
-        # Strategy 1: Add (or subtract) small noise to avoid NaNs/INFs
-        # Get preds for other class as well
         x__, y__ = 1 - x_, 1 - y_
         first_term = x_ * (np.log(x_) - np.log(y_))
         second_term = x__ * (np.log(x__) - np.log(y__))
-    # temp = first_term+second_term
-    # print(temp)
-    # print(temp.shape)
-    # temp2 = np.mean(first_term + second_term, 1)
-    # print(temp2)
-    # print(temp2.shape)
     return np.mean(first_term + second_term, 1)

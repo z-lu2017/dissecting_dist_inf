@@ -15,7 +15,7 @@ import h5py
 from numpy.lib.stride_tricks import sliding_window_view
 
 
-from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface, lstm_wind_turbine, lstm_WT_new
+from distribution_inference.datasets import new_census, celeba, boneage,census, texas, arxiv, maadface, lstm_WT_new
 
 DATASET_INFO_MAPPING = {
     "new_census": new_census.DatasetInformation,
@@ -25,7 +25,6 @@ DATASET_INFO_MAPPING = {
     "texas": texas.DatasetInformation,
     "arxiv": arxiv.DatasetInformation,
     "maadface": maadface.DatasetInformation,
-    "lstm_wind_turbine": lstm_wind_turbine.DatasetInformation, 
     "lstm_WT_new": lstm_WT_new.DatasetInformation,
 }
 
@@ -37,7 +36,6 @@ DATASET_WRAPPER_MAPPING = {
     "texas": texas.TexasWrapper,
     "arxiv": arxiv.ArxivWrapper,
     "maadface": maadface.MaadFaceWrapper,
-    "lstm_wind_turbine": lstm_wind_turbine.LSTMWindTurbineWrapper,
     "lstm_WT_new": lstm_WT_new.LSTMWindTurbineWrapper,
 }
 
@@ -254,82 +252,6 @@ def collect_data(loader, expect_extra: bool = True):
     return X, Y
 
 
-def aggregate_data(data_folder_path, WTs, data_split): 
-
-    if WTs is None:
-        print(f"Aggregating data for all available WTs at {data_folder_path}")
-        WT_folders = [folder for folder in sorted(os.listdir(data_folder_path)) if data_split in folder]
-    else:
-        print(f"Aggregating data for {WTs} at {data_folder_path}")
-        WT_folders = [folder for folder in sorted(os.listdir(data_folder_path)) if any(WT in folder for WT in WTs) and data_split in folder]
-
-    X = []
-    y = []
-    masks = []
-    timestamps = []
-
-    print(WT_folders)
-
-    for folder in WT_folders: 
-        folder_path = os.path.join(data_folder_path, folder)
-        for file in os.listdir(folder_path):
-            file_path = os.path.join(folder_path, file)       
-            np_array = (np.load(file_path, allow_pickle=True))
-            
-            if file == "X.npy": X.append(np_array)
-            elif file == "y.npy": y.append(np_array)
-            elif file == "mask.npy": masks.append(np_array)
-            elif file == "timestamps.npy": timestamps.append(np_array)
-            else: raise KeyError(f"No file found in {folder_path} with the name {file}")
-
-    return (
-        np.concatenate(X, axis=0), 
-        np.concatenate(y, axis=0), 
-        np.concatenate(masks, axis=0), 
-        np.concatenate(timestamps, axis=0)
-        )
-
-def split_for_training(data, timestamp_split):
-    for timestamp in timestamp_split:
-        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", timestamp), "Invalid date format! Use YYYY-MM-DD"
-
-    X_tensor, y_tensor, timestamps_array = data
-
-    valid_samples = ~ch.isnan(y_tensor).squeeze()
-    X_tensor, y_tensor, timestamps_array = X_tensor[valid_samples], y_tensor[valid_samples], timestamps_array[valid_samples]
-
-    mask = (~ch.isnan(X_tensor).any(dim=2)).float()
-    X_tensor = ch.nan_to_num(X_tensor, nan=0.0)
-
-    timestamps = pd.to_datetime(timestamps_array)
-    
-    # Get the min and max timestamp from the data
-    data_start, data_end = timestamps.min(), timestamps.max()
-
-    if len(timestamp_split) == 1:  
-        timestamp_split = pd.Timestamp(timestamp_split[0])  
-        if timestamp_split < data_start:
-            print(f"WARNING: Single timestamp {timestamp_split} is before the data range ({data_start} to {data_end}). Training data will be empty.")
-        elif timestamp_split > data_end:
-            print(f"WARNING: Single timestamp {timestamp_split} is after the data range ({data_start} to {data_end}). Testing data will be empty.")
-        train_mask = timestamps < timestamp_split
-        test_mask = timestamps >= timestamp_split
-    elif len(timestamp_split) == 2:
-        start_timestamp, end_timestamp = pd.Timestamp(timestamp_split[0]), pd.Timestamp(timestamp_split[1])
-        if start_timestamp < data_start or end_timestamp > data_end:
-            print(f"WARNING: Timestamp range ({start_timestamp} to {end_timestamp}) is partially or completely outside the data range ({data_start} to {data_end}). Some splits may be empty.")
-
-        train_mask = (timestamps >= start_timestamp) & (timestamps <= end_timestamp)
-        test_mask = (timestamps < start_timestamp) | (timestamps > end_timestamp)
-    else:
-        raise ValueError("timestamp_split should contain either 1 or 2 timestamps.")
-
-    def splits(split_mask, X, y, mask, ts):
-        return X[split_mask], y[split_mask], mask[split_mask], ts[split_mask]
-
-    return splits(train_mask, X_tensor, y_tensor, mask, timestamps_array), \
-           splits(test_mask, X_tensor, y_tensor, mask, timestamps_array)
-
 def get_segmented_data_scotland(data_folder, WT): 
     data_folder_path = os.path.join(data_folder, WT)
 
@@ -357,58 +279,6 @@ def get_segmented_data_scotland(data_folder, WT):
                     chunks.append(pickle.load(f))
         loaded[dtype] = chunks
     return loaded
-
-def get_segmented_data_edp(data_folder_path): 
-    result = []
-
-    def load_pickle(file_path):
-        with open(file_path, "rb") as f:
-            return pickle.load(f)
-
-    files = sorted(os.listdir(data_folder_path))
-    wt_numbers = sorted({re.search(r"EDP_WT_(\d+)", f).group(1) for f in files if re.search(r"EDP_WT_(\d+)", f)})
-    for WT in wt_numbers:
-        X_tensor = None
-        y_tensor = None
-        timestamps_array = []
-        
-        for file in files:
-            file_path = os.path.join(data_folder_path, file)
-            
-            if file.endswith(f"{WT}_X.pt"):
-                tensor = ch.load(file_path)
-                X_tensor = tensor if X_tensor is None else ch.cat((X_tensor, tensor), dim=0)
-                
-            elif file.endswith(f"{WT}_y.pt"):
-                tensor = ch.load(file_path)
-                y_tensor = tensor if y_tensor is None else ch.cat((y_tensor, tensor), dim=0)
-                
-            elif file.endswith(f"{WT}_timestamp.pkl"):
-                timestamps = load_pickle(file_path)
-                timestamps = np.array(timestamps)  # Ensure it's a NumPy array
-                timestamps_array = (
-                    timestamps if timestamps_array is None else np.concatenate((timestamps_array, timestamps))
-                )
-
-        result.append((WT, (X_tensor, y_tensor, timestamps_array)))
-
-    return result
-
-
-def save_processed_data(data, directory):
-    os.makedirs(directory, exist_ok=True) 
-    
-    X_tensor, y_tensor, mask, timestamps_array = data
-
-    X_array = X_tensor.numpy()  # (num_samples, sequence_length, num_features)
-    y_array = y_tensor.numpy()
-    mask_array = mask.numpy()
-
-    # Save as .npy files
-    np.save(os.path.join(directory, 'y.npy'), y_array)
-    np.save(os.path.join(directory, 'mask.npy'), mask_array)
-    np.save(os.path.join(directory, 'X.npy'), X_array)
-    np.save(os.path.join(directory, 'timestamps.npy'), timestamps_array)
 
 
 class WindTurbineDataset(Dataset):
@@ -484,7 +354,6 @@ def get_available_cpus():
 class data_farm:
     def __init__(
             self, 
-            dataset_name, 
             cols, 
             fault_check_cols,
             list_turbine_name, 
@@ -494,12 +363,15 @@ class data_farm:
             rename = None,
             exclude_fault_data = False,
         ):
-        self.dataset_name = dataset_name
-        self.columns = cols
-        self.fault_check_cols = fault_check_cols
-        # TODO: fix in cols vs keep cols
-        self.in_cols = [col for col in cols if col not in predicted_property and col != "Timestamp"]
+        self.fault_check_cols = fault_check_cols        
+        
+        self.base_in_cols = [col for col in cols
+                            if col not in predicted_property
+                            and col != "Timestamp"]
         self.out_cols = predicted_property
+        self.sensitive = sensitive_property
+        self.keep_cols = self.out_cols + self.base_in_cols + [self.sensitive]
+
         self.list_turbine_name = list_turbine_name
         self.exclude_fault_data = exclude_fault_data
 
@@ -507,20 +379,18 @@ class data_farm:
         # makes it so edits can be made on them while running other code, but so that repetitive data is not being stored
         # unnecessarily
         self.BASE_DIR = BASE_DIR
-        self.CLEANED_DATA_PATH = os.path.join(BASE_DIR, sensitive_property) if not exclude_fault_data else os.path.join(BASE_DIR, sensitive_property + "faults_excluded")
         self.WINDOWED_BASE = "/scratch/ujx4ab"
         suffix = sensitive_property if not exclude_fault_data else f"{sensitive_property}_faults_excluded"
         self.WINDOWED_DATA_PATH = os.path.join(self.WINDOWED_BASE, suffix)
 
         # TODO: clean up this check and put it somewhere else
-        os.makedirs(self.CLEANED_DATA_PATH, exist_ok=True)
         os.makedirs(self.WINDOWED_DATA_PATH, exist_ok=True)
 
         for t in self.list_turbine_name:
             print(f"Initializing {t}")
             self.initialize_data(t, rename)
         
-        self.prepare_edp_data() if dataset_name == "EDP" else self.prepare_scotland_data(sensitive_property)
+        self.prepare_scotland_data()
         self.X, self.y, self.timestamps = {t : None for t in self.list_turbine_name}, {t : None for t in self.list_turbine_name}, {t : None for t in self.list_turbine_name}
 
     def initialize_data(self, t, rename):
@@ -532,7 +402,6 @@ class data_farm:
         getattr(self, t).set_index(index, inplace=True)
         getattr(self, t).drop(["Timestamp"], axis=1, inplace=True)
 
-    # @profile
     def load_df(self, file_name, rename, exclude_fault_data = False):
         wt_df = pd.read_csv(os.path.join(self.BASE_DIR, "raw_data", file_name), parse_dates=["Timestamp"])
         float_cols = wt_df.select_dtypes(include="float64").columns
@@ -558,7 +427,7 @@ class data_farm:
         # Reindexing the dataframe to include the full range of timestamps
         wt_df = wt_df.set_index("Timestamp").reindex(full_range).reset_index()
         wt_df.rename(columns={"index": "Timestamp"}, inplace=True)
-        wt_df = wt_df[[c for c in self.columns if c in wt_df.columns]]
+        wt_df = wt_df[[c for c in ["Timestamp"]+self.keep_cols if c in wt_df.columns]]
 
         # Whether or not include faulty data periods in the dataset
         if self.exclude_fault_data:
@@ -568,15 +437,15 @@ class data_farm:
             for fault_time in fault_df['Timestamp']:
                 start_time = fault_time - pd.Timedelta(weeks=2)
                 end_time = fault_time + pd.Timedelta(days=3)
-                wt_df.loc[(wt_df.index >= start_time) & (wt_df.index <= end_time), self.in_cols] = np.nan
+                wt_df.loc[(wt_df.index >= start_time) & (wt_df.index <= end_time), self.base_in_cols] = np.nan
                 wt_df.loc[(wt_df.index >= start_time) & (wt_df.index <= end_time), self.out_cols] = np.nan
         
         # cut in depends on the dataset
-        cut_in_wind_speed = 3.5 if self.dataset_name == "Scotland" else 4.0
+        cut_in_wind_speed = 3.5
         for col in self.fault_check_cols:
             zero_col_with_wind = (wt_df[col] == 0) & (wt_df["WindSpeed"] > cut_in_wind_speed)
             if zero_col_with_wind.any():
-                wt_df.loc[zero_col_with_wind, self.in_cols] = np.nan
+                wt_df.loc[zero_col_with_wind, self.base_in_cols] = np.nan
                 wt_df.loc[zero_col_with_wind, self.out_cols] = np.nan
             else:
                 print(f"No occurrences found for {col}.")
@@ -585,110 +454,133 @@ class data_farm:
 
         return wt_df 
 
-    def prepare_edp_data(self): 
-        self.feature_cut("WindSpeed", min=0, max=25, min_value=0)
-        self.feature_cut("Power", min=0, max=334000, min_value=0)
-        self.feature_cut("RotorSpeed", min=0,  min_value=0)
-        self.feature_cut("GenSpeed", min=0)
-        self.line_cut("WindSpeed", "Power", a = 0, b= 1100, xmin = 4.2, xmax= 25)
-        cols = self.out_cols + self.in_cols
-
-        # remove any duplicate indices
-        for t in self.list_turbine_name:
-            df = getattr(self, t)
-            df = df[~df.index.duplicated()]
-            setattr(self, t, df)
-
-        self.drop_col([c for c in getattr(self, self.list_turbine_name[0]).columns if c not in cols])
-        self.time_filling(interpolation_limit = 24)
-
-        # Normalization
-        normalized_dict = {}
-        self.normalize_min_max(
-                                normalized_dict = normalized_dict,
-                                cols=[c for c in cols if c in [
-                                                                "WindSpeed", "AmbientTemp", "GenSpeed", "RotorSpeed",
-                                                                "BladePitch", "GenPhaseTemp1", "GenPhaseTemp2", 
-                                                                "GenPhaseTemp3", "TransfTempP1", "TransfTempP2", 
-                                                                "TransfTempP3", "GenBearTemp_avg", "HydOilTemp",
-                                                                "GearOilTemp", "GearBearTemp", "NacellePos",
-                                                                "Power"
-                                                             ]])
-        self.normalize_mean_SD(
-                                normalized_dict = normalized_dict,
-                                cols=[c for c in cols if c in [
-                                                                "WindSpeed_SD", 
-                                                                "GenSpeed_SD", 
-                                                                "RotorSpeed_SD", 
-                                                                "BladePitch_SD"
-                                                            ]])
-        self.circ_embedding(cols=[c for c in cols if c in [
-                                                                "RelWindDir", 
-                                                                "NacellePos"
-                                                            ]])
-        self.feature_weighted_combination("GenBearTemp_avg", ["GenBearingTemp1", "GenBearingTemp2"])
-
-        # self.save_data()
-
+    
     def create_new_feature(self, new_feature):
-        valid = ["WT_Misalignment", "WT_Time_Availability", "WT_Energy_Availability", "WT_Misalignment_3", "WT_Misalignment_5", "WT_Misalignment_10", "WT_Misalignment_real"]
+        valid = ["Speed", "Turbulence", "MisalignmentLoss", "Time_Availability", "Capacity", "Energy_Availability"]
         if new_feature not in valid:
             raise ValueError(f"Invalid feature {new_feature!r}, must be one of {valid}")
 
-        misalignment_features = ["WT_Misalignment", "WT_Misalignment_3", "WT_Misalignment_5", "WT_Misalignment_10", "WT_Misalignment_real"]
-        if new_feature in misalignment_features:
-            def _angular_diff(a, b):
-                return (a - b + 180) % 360 - 180
+        for t in self.list_turbine_name:
+            df = getattr(self, t)
 
-            for t in self.list_turbine_name:
-                df = getattr(self, t)
+            if new_feature == "Speed": 
+                df[new_feature] = df["WindSpeed"].copy()
+
+            elif new_feature == "Turbulence": 
+                df[new_feature] = df["WindSpeed_SD"]/df["WindSpeed"]
+
+            elif new_feature == "MisalignmentLoss":
+                def _angular_diff(a, b):
+                    return (a - b + 180) % 360 - 180
 
                 wind_dir = df["WindDirection"].to_numpy(copy=False)
                 yaw = df["Yaw"].to_numpy(copy=False)
 
                 signed_err = _angular_diff(wind_dir, yaw)
                 misalignment = np.abs(signed_err)
-
-                df[new_feature] = misalignment
-
-                setattr(self, t, df)
-        
-        elif new_feature == "WT_Time_Availability":
-            CUT_IN  = 3.5   # m/s
-            CUT_OUT = 25.0
-
-            for t in self.list_turbine_name:
-                df = getattr(self, t)
-                df["WT_Time_Availability"] = ((df["Power"] > 0) | (df["WindSpeed"] < CUT_IN)).astype(int)
-                df.loc[df["WindSpeed"] > CUT_OUT, "WT_Time_Availability"] = 0
-                setattr(self, t, df)
+                power_loss = 1 - np.cos(misalignment)**2
+                df[new_feature] = power_loss
             
-        elif new_feature == "WT_Energy_Availability":
-            for t in self.list_turbine_name:
-                df = getattr(self, t)
+            elif new_feature == "Time_Availability":
+                CUT_IN  = 3.5
+                CUT_OUT = 25.0
 
-                # avoid division by zero ... when TargetPower == 0 ratio = 0
+                df[new_feature] = 0
+                within_range = (df["WindSpeed"] >= CUT_IN) & (df["WindSpeed"] <= CUT_OUT)
+                producing = df["Power"] > 0
+                df.loc[within_range & producing, new_feature] = 1
+                
+            elif new_feature == "Capacity":
                 ratio = np.zeros(len(df), dtype=float)
-                mask  = df["TargetPower"].to_numpy(copy=False) != 0
+                mask = df["TargetPower"].to_numpy(copy=False) != 0
                 ratio[mask] = (df.loc[mask, "Power"].to_numpy(copy=False)
                             / df.loc[mask, "TargetPower"].to_numpy(copy=False))
+                df[new_feature] = ratio
 
-                df["WT_Energy_Availability"] = ratio
-                setattr(self, t, df)
+            elif new_feature == "Energy_Availability": 
+                farm_curve = {
+                    0.5:   -10.113101,
+                    1.0:   -10.089789,
+                    1.5:   -10.350299,
+                    2.0:   -11.976830,
+                    2.5:   -13.729584,
+                    3.0:   -12.103409,
+                    3.5:     2.671766,
+                    4.0:    42.013350,
+                    4.5:    83.540082,
+                    5.0:   126.814061,
+                    5.5:   180.838161,
+                    6.0:   248.855580,
+                    6.5:   330.141233,
+                    7.0:   421.214043,
+                    7.5:   522.196606,
+                    8.0:   630.285105,
+                    8.5:   748.798986,
+                    9.0:   871.901906,
+                    9.5:   997.448546,
+                    10.0:  1121.747472,
+                    10.5:  1246.951706,
+                    11.0:  1361.611444,
+                    11.5:  1477.664036,
+                    12.0:  1581.765787,
+                    12.5:  1661.978351,
+                    13.0:  1736.676688,
+                    13.5:  1786.834080,
+                    14.0:  1801.606437,
+                    14.5:  1806.325448,
+                    15.0:  1794.770038,
+                    15.5:  1779.369799,
+                    16.0:  1781.090434,
+                    16.5:  1762.467279,
+                    17.0:  1771.479803,
+                    17.5:  1801.986146,
+                    18.0:  1785.930135,
+                    18.5:  1800.477394,
+                    19.0:  1797.501233,
+                    19.5:  1843.313478,
+                    20.0:  1856.970193,
+                    20.5:  1879.774873,
+                    21.0:  1862.695658,
+                    21.5:  1849.695686,
+                    22.0:  1825.765791,
+                    22.5:  1788.374110,
+                    23.0:  1707.553307,
+                    23.5:  1683.381103,
+                    24.0:  1707.683609,
+                    24.5:  1577.414376,
+                    25.0:  1415.657470,
+                    25.5:  1262.700953,
+                }
 
-        else:
-            assert False, f"Error: {new_feature} not implemented to be created."
+                idx = np.floor(df["WindSpeed"] / 0.5)
+                df["ws_mid"] = (idx + 1) * 0.5
+                df["expected_power"] = df["ws_mid"].map(farm_curve)
+                df["Energy_Availability"] = (df["Power"] / df["expected_power"])
+                df.drop(columns=["ws_mid", "expected_power"], inplace=True)
 
+            else:
+                assert False, f"Error: {new_feature} not implemented to be created."
 
-    # @profile
-    def prepare_scotland_data(self, sensitive_property): 
-        created_new_feat = 0
-        if sensitive_property not in self.in_cols:
-            self.create_new_feature(sensitive_property)
-            self.in_cols.append(sensitive_property)
-            created_new_feat = 1
+            setattr(self, t, df)
 
-        cols = self.out_cols + self.in_cols
+    def prepare_scotland_data(self): 
+        circular_cols = ["Yaw", "SetYaw"]
+        norm_SD_cols = [c for c in self.keep_cols if c.endswith("_SD")]
+        norm_mean_cols = [
+            c for c in self.keep_cols
+            if c not in circular_cols
+            and c not in norm_SD_cols
+            and c != self.sensitive
+        ]
+
+        self.drop_col([
+            c for c in getattr(self, self.list_turbine_name[0]).columns
+            if c not in self.keep_cols
+        ])
+
+        if self.sensitive not in self.base_in_cols: 
+            self.base_in_cols.append(self.sensitive)
+            self.create_new_feature(self.sensitive)
 
         # feature cuts for outliers
         self.feature_cut("WindSpeed", min=0, max=25, min_value=0)
@@ -698,103 +590,55 @@ class data_farm:
         self.feature_cut("GearboxBearingTempHSGenSide", min=0, max=65)
         self.feature_cut("GearboxBearingTempHSRotorSide", min=0, max=65)
 
-        circular_cols = [c for c in cols if c in ("Yaw", "SetYaw")]
-        SD_cols = [c for c in cols if c.endswith("_SD")]
-        mean_cols = [c for c in cols if c not in SD_cols 
-                        and c not in circular_cols]
-        if created_new_feat: mean_cols.remove(sensitive_property)
-
-        self.drop_col([c for c in getattr(self, self.list_turbine_name[0]).columns if c not in cols])
-
+        # load or recompute global min/max stats
         pkl_path = os.path.join(
             self.BASE_DIR, 'data_normalisation',
-            f'feature_stats_and_thresholds_{self.dataset_name}.pkl'
+            f'feature_stats_Scotland.pkl'
         )
 
-        threshold_cols = ["WindSpeed", "WindSpeed_SD"]
-        if sensitive_property == "WT_Time_Availability" or sensitive_property == "WT_Energy_Availability": 
-            threshold_cols.append(sensitive_property)
-
-        # if file exists then make sure it has all the metrics, otherwise recompute
         if os.path.exists(pkl_path):
             with open(pkl_path, 'rb') as f:
                 stored = pickle.load(f)
             stats = stored.get('stats', {})
-            quantiles = stored.get('quantiles', {})
-
-            missing_stats = set(mean_cols) - set(stats.keys())
-            missing_stats |= set(SD_cols) - set(stats.keys())
-            missing_quantiles = set(threshold_cols) - set(quantiles.keys())
-
-            if missing_stats or missing_quantiles: 
-                stats, quantiles = self.get_and_save_feature_stats_and_thresholds(mean_cols + SD_cols, threshold_cols)
-        else: 
-            stats, quantiles = self.get_and_save_feature_stats_and_thresholds(mean_cols + SD_cols, threshold_cols)
+            # if any requested col is missing, recompute all
+            needed = set(norm_mean_cols + norm_SD_cols)
+            if needed - stats.keys():
+                stats = self.get_and_save_feature_stats(norm_mean_cols + norm_SD_cols)
+        else:
+            stats = self.get_and_save_feature_stats(norm_mean_cols + norm_SD_cols)
 
         self.stats = stats
-        self.quantiles = quantiles
 
         # remove any duplicate indices
         for t in self.list_turbine_name:
             df = getattr(self, t)
-            df = df[~df.index.duplicated()]
-            setattr(self, t, df)
+            setattr(self, t, df[~df.index.duplicated()])
 
-        self.time_filling(interpolation_limit = 24)
+        self.time_filling(interpolation_limit = 6)
 
         # normalize data
         normalized_dict = {}
-        self.normalize_min_max(normalized_dict=normalized_dict,cols=mean_cols)
-        self.normalize_mean_SD(
-            normalized_dict=normalized_dict,
-            cols=SD_cols
-        )
-        self.circ_embedding(["Yaw", "SetYaw"])
+        self.normalize_min_max(normalized_dict=normalized_dict,cols=norm_mean_cols)
+        self.normalize_mean_SD(normalized_dict=normalized_dict,cols=norm_SD_cols)
+        self.circ_embedding(circular_cols)
 
-        # self.save_data()
-
-    def get_and_save_feature_stats_and_thresholds(
-        self,
-        stat_cols,
-        threshold_cols,
-        low_q: float = 1/3,
-        high_q: float = 2/3,
-    ):
-        all_cols = list(dict.fromkeys(stat_cols + threshold_cols))
-        stats, quantiles = {}, {}
-
-        for c in tqdm(all_cols, desc="Calculating global statistics for each feature"):
+    def get_and_save_feature_stats(self, stat_cols):
+        stats = {}
+        for c in tqdm(stat_cols, desc="Calculating global min/max per feature"):
             mins, maxs = [], []
-            lqs, hqs   = [], []
             for t in self.list_turbine_name:
                 arr = getattr(self, t)[c].to_numpy(copy=False)
                 mins.append(np.nanmin(arr))
                 maxs.append(np.nanmax(arr))
-                if c in threshold_cols:
-                    lqs.append(np.nanquantile(arr, low_q))
-                    hqs.append(np.nanquantile(arr, high_q))
-                    
-            gmin, gmax = min(mins), max(maxs)
-            stats[c] = (gmin, gmax)
+            stats[c] = (min(mins), max(maxs))
 
-            if c in threshold_cols:
-                denom = (gmax - gmin) or 1.0
-                low_norm  = float((np.mean(lqs) - gmin) / denom)
-                high_norm = float((np.mean(hqs) - gmin) / denom)
-                print('low/high quantiles and gmin/gmax for ', c)
-                print(lqs, hqs)
-                print(gmin, gmax)
-                quantiles[c] = (low_norm, high_norm)
         out_dir = os.path.join(self.BASE_DIR, 'data_normalisation')
         os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(
-            out_dir,
-            f'feature_stats_and_thresholds_{self.dataset_name}.pkl'
-        )
+        path = os.path.join(out_dir, f'feature_stats_Scotland.pkl')
         with open(path, 'wb') as f:
-            pickle.dump({'stats': stats, 'quantiles': quantiles}, f)
+            pickle.dump({'stats': stats}, f)
 
-        return stats, quantiles
+        return stats
 
     def normalize_min_max(self, normalized_dict, cols):
         global_stats = {c: self.stats[c] for c in cols}
@@ -813,7 +657,7 @@ class data_farm:
             setattr(self, t, df)
         
         with open(os.path.join(self.BASE_DIR, 'data_normalisation',
-                               f'min_max_normalisation_{self.dataset_name}.pkl'),
+                               f'min_max_normalisation_Scotland.pkl'),
                   'wb') as f:
             pickle.dump(normalized_dict, f)
 
@@ -835,7 +679,7 @@ class data_farm:
             setattr(self, t, df)
 
         with open(os.path.join(self.BASE_DIR, 'data_normalisation',
-                               f'std_mean_normalisation_{self.dataset_name}.pkl'),
+                               f'std_mean_normalisation_Scotland.pkl'),
                   'wb') as f:
             pickle.dump(normalized_dict, f)
 
@@ -854,14 +698,6 @@ class data_farm:
                 df[f"{c}_sin"] = sines
             setattr(self, t, df)
 
-
-    def save_data(self, turbine = None):
-        turbine = turbine if turbine is not None else self.list_turbine_name
-        for t in turbine:
-            save_path = os.path.join(self.CLEANED_DATA_PATH, f"{self.dataset_name}_{t}.csv")
-            print(f"saving {t} data to {save_path}")
-            getattr(self, t).to_csv(save_path) 
-    
     def feature_cut(self, feature, min = None, max = None, min_value = "drop", max_value = "drop", turbine_name = None, verbose = False):
         turbine = turbine_name if turbine_name is not None else self.list_turbine_name
 
@@ -944,8 +780,8 @@ class data_farm:
         
         if remove_input_cols: 
             for remove_col in input_names: 
-                self.in_cols.remove(remove_col)
-        self.in_cols.append(name)
+                self.base_in_cols.remove(remove_col)
+        self.base_in_cols.append(name)
 
     def drop_col(self, cols):
         for t in self.list_turbine_name:
@@ -973,9 +809,6 @@ class data_farm:
             print(f"After fill, {name} shape:", df.shape)
 
 
-    # def create_new_var
-
-    # @profile
     def make_window_data(self, in_shift, turbine = None, ret = False):
         turbine = turbine if turbine is not None else self.list_turbine_name 
         
@@ -984,7 +817,7 @@ class data_farm:
         
             data = getattr(self,t)
 
-            in_data = data[self.in_cols].to_numpy(dtype=np.float32, copy = True)
+            in_data = data[self.base_in_cols].to_numpy(dtype=np.float32, copy = True)
             out_data = data[self.out_cols].to_numpy(dtype=np.float32, copy = True)
             
             index = data.index
@@ -1017,7 +850,7 @@ class data_farm:
 
                         # pull arrays for rows in chunk
                         rows = block[start : end + in_shift]
-                        arr_in  = data.loc[rows, self.in_cols].to_numpy(dtype=np.float32)
+                        arr_in  = data.loc[rows, self.base_in_cols].to_numpy(dtype=np.float32)
                         arr_out = data.loc[rows, self.out_cols].to_numpy(dtype=np.float32)
 
                         # build sliding windows along axis=0
@@ -1043,7 +876,7 @@ class data_farm:
 
                         turbine_folder = os.path.join(self.WINDOWED_DATA_PATH, f"{t}")
                         os.makedirs(turbine_folder, exist_ok=True)
-                        base = os.path.join(turbine_folder, f"{self.dataset_name}_{t}")
+                        base = os.path.join(turbine_folder, f"Scotland_{t}")
 
                         ch.save(Xb, f"{base}_X_{idx:02d}.pt")
                         ch.save(yb, f"{base}_y_{idx:02d}.pt")
@@ -1060,89 +893,53 @@ class data_farm:
 
 
 def process_data(
-        dataset,
+        cols, 
         BASE_DIR,
         sensitive_property,
         predicted_property,  
         exclude_fault_data,
-        cols, 
         WT_IDs,
         rename
     ):
-    print(f"Processing data for {dataset} {'WITH' if exclude_fault_data else 'WITHOUT'} faults.")
     print(f"The predicted property is {predicted_property}")
     print(f"The sensitive property is {sensitive_property}")
 
-
-    DATA_PATH = os.path.join(BASE_DIR, dataset)
+    DATA_PATH = os.path.join(BASE_DIR, "Scotland")
     
     if os.path.exists(DATA_PATH):
         for path in os.listdir(DATA_PATH):
             df = pd.read_csv(os.path.join(DATA_PATH, path))
     
-    # TODO: fix logic to be one call to data_farm
-    if dataset == 'EDP':
-        farm_edp = data_farm(
-            dataset_name=dataset, 
-            cols=cols,
-            fault_check_cols = ['GenSpeed', 'RotorSpeed', 'Power'],
-            list_turbine_name=WT_IDs,
-            BASE_DIR=BASE_DIR,
-            sensitive_property=sensitive_property,
-            predicted_property=predicted_property,
-            rename=rename, 
-            exclude_fault_data=exclude_fault_data,
-        )
-        print("\nPreparing data windows")
-        print(f"Saving data to {farm_edp.CLEANED_DATA_PATH}")
-        farm_edp.make_window_data(in_shift=24*6)
-        return [c for c in farm_edp.in_cols if c in cols]
-
-    
     # TODO: setup the renaming of variables in here not in the preprocess
-    elif dataset == 'Scotland': 
-        farm_scotland = data_farm(
-            dataset_name=dataset, 
-            cols=cols, 
-            fault_check_cols=['MainShaftRPM', 'Power'],
-            list_turbine_name=WT_IDs,
-            BASE_DIR=BASE_DIR,
-            sensitive_property=sensitive_property,
-            predicted_property=predicted_property,
-            exclude_fault_data=exclude_fault_data,
-        )
-        print("\nPreparing data windows")
-        print(f"Saving data to {farm_scotland.CLEANED_DATA_PATH}")
-        farm_scotland.make_window_data(in_shift=24*6)
-        # don't want to return the new feature if we create it
-        feature_list = [c for c in farm_scotland.in_cols if c in cols]
-        feat_path = os.path.join(farm_scotland.WINDOWED_DATA_PATH, "features_list.pkl")
-        with open(feat_path, "wb") as f:
-            pickle.dump(feature_list, f)
-        return feature_list
-    else: 
-        print(f"Invalid dataset {dataset} specified. Only EDP and Scotland currently implemented")
-        
+    farm_scotland = data_farm(
+        cols=cols, 
+        fault_check_cols=['MainShaftRPM', 'Power'],
+        list_turbine_name=WT_IDs,
+        BASE_DIR=BASE_DIR,
+        sensitive_property=sensitive_property,
+        predicted_property=predicted_property,
+        exclude_fault_data=exclude_fault_data,
+    )
+    print("\nPreparing data windows")
+    farm_scotland.make_window_data(in_shift=24*6)
+    feat_path = os.path.join(farm_scotland.WINDOWED_DATA_PATH, "features_list.pkl")
+    farm_scotland.base_in_cols
+    with open(feat_path, "wb") as f:pickle.dump(farm_scotland.base_in_cols, f)
+    return cols
+
 
 class preprocess_data_farm:
     def __init__(
             self, 
-            dataset=str, 
             base_dir=str, 
             years=list[int],
             rename=Dict[str, Any]
         ):
-        """
-            dataset: Which dataset of wind turbine data is being used
-            base_dir: Where the dataset is located
-            years: List of years that the data spands
-        """
-        self.dataset = dataset
         self.base_dir = base_dir
         self.years = years
         self.rename = rename
 
-        self.base_url = "https://www.edp.com/sites/default/files/2023-04/" if self.dataset == "EDP" else "https://zenodo.org/records/14870023/files"
+        self.base_url = "https://zenodo.org/records/14870023/files"
         self.temp_dir = os.path.join(self.base_dir, "temp")
         self.descriptions_dir = os.path.join(self.base_dir, "descriptions")
         self.raw_dir = os.path.join(self.base_dir, "raw_data")
@@ -1153,17 +950,11 @@ class preprocess_data_farm:
 
         self.max_workers_available = get_available_cpus()
 
-        supported_datasets = ["EDP", "Scotland"]
-        if self.dataset not in supported_datasets: 
-            Exception("Invalid dataset {self.dataset}. {supported_datasets} datasets supported")
-        print(f"\nPreprocessing dataset={self.dataset}")
+        print("\nPreprocessing dataset")
 
     def preprocess(self):
         self.make_dirs()
-        if self.dataset == "EDP": 
-            self.get_EDP_dataset()
-        elif self.dataset == "Scotland": 
-            self.get_Scotland_dataset()
+        self.get_Scotland_dataset()
 
     def make_dirs(self):
         for d in (self.temp_dir, self.descriptions_dir, self.raw_dir, 
@@ -1171,73 +962,7 @@ class preprocess_data_farm:
                     self.daily_stats):
             os.makedirs(d, exist_ok=True)
     
-    def get_EDP_dataset(self):
-        normal_urls = {
-            2016: os.path.join(self.base_url, "Wind-Turbine-SCADA-signals-2016.xlsx"),
-            2017: os.path.join(self.base_url, "Wind-Turbine-SCADA-signals-2017_0.xlsx")
-        }
-        fault_urls = {
-            2016: os.path.join(self.base_url, "Historical-Failure-Logbook-2016.xlsx"),
-            2017: os.path.join(self.base_url, "opendata-wind-failures-2017.xlsx")
-        }
-
-        all_urls: dict[str,str] = {}
-        for yr in self.years:
-            if yr not in normal_urls or yr not in fault_urls:
-                raise KeyError(f"No URLs configured for year {yr}")
-            all_urls[f"EDP_{yr}.xlsx"]         = normal_urls[yr]
-            all_urls[f"EDP_faults_{yr}.xlsx"]  = fault_urls[yr]
-
-        for fname, url in all_urls.items():
-            dest = os.path.join(self.temp_dir, fname)
-            print(f"Downloading {fname}")
-            resp = requests.get(url, allow_redirects=True)
-            resp.raise_for_status()
-            with open(dest, "wb") as f:
-                f.write(resp.content)
-
-        for xlsx_fname in all_urls:
-            csv_fname = xlsx_fname.replace(".xlsx", ".csv")
-            print(f"↳ Converting {xlsx_fname} → {csv_fname}")
-            Xlsx2csv(
-                os.path.join(self.temp_dir, xlsx_fname),
-                outputencoding="utf-8"
-            ).convert(os.path.join(self.temp_dir, csv_fname))
-
-        df_list = []
-        for csv_fname in [f.replace(".xlsx", ".csv") for f in all_urls]:
-            full_path = os.path.join(self.temp_dir, csv_fname)
-            print(f"Reading {csv_fname}")
-            df = pd.read_csv(full_path, parse_dates=["Timestamp"])
-            if "faults" in csv_fname:
-                df = df.drop(columns=["Component", "Remarks"], errors="ignore")
-                df["data_type"] = "fault"
-            else:
-                df["data_type"] = "normal"
-            df_list.append(df)
-
-        df = pd.concat(df_list, ignore_index=True)
-
-        for turb in df["Turbine_ID"].unique():
-            for dtype in ("normal", "fault"):
-                sub = df[(df["Turbine_ID"] == turb) & (df["data_type"] == dtype)]
-                if sub.empty:
-                    continue
-
-                tnum = turb[-2:]
-                if dtype == "normal":
-                    out_dir = self.raw_dir
-                    print(f"Saving normal data for WT_{tnum}")
-                else:
-                    out_dir = self.fault_dir
-                    print(f"Saving fault logs for WT_{tnum}")
-
-                out_path = os.path.join(out_dir, f"WT_{tnum}.csv")
-                sub.to_csv(out_path, index=False)
-
-
     def get_Scotland_dataset(self):
-
         missing_years = []
         downloaded_years = []
         for year in self.years:
@@ -1470,13 +1195,13 @@ class preprocess_data_farm:
             
             for csv_file in csv_files:
                 df = pd.read_csv(csv_file)
-                keep_cols = [col for col in rename_map[folder].keys() if col in df.columns]
+                self.keep_cols = [col for col in rename_map[folder].keys() if col in df.columns]
                 
-                if not keep_cols:
+                if not self.keep_cols:
                     print(f"None of the specified columns found in {csv_file}. Skipping.")
                     continue
                 
-                df = df[keep_cols]
+                df = df[self.keep_cols]
                 df.rename(columns=rename_map[folder], inplace=True)
                 data_frames.append(df)
         
