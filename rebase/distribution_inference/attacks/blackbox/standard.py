@@ -76,6 +76,9 @@ class LossAndThresholdAttack(Attack):
                 mse_scores = np.zeros(n_models)
                 for i in range(n_models):
                     y_pred = data[:, i]
+                    # TEMPORARY FIX - REVISIT
+                    y_pred = np.nan_to_num(y_pred, nan=0.0)
+                    labels = np.nan_to_num(labels, nan=0.0)
                     mse_scores[i] = mean_squared_error(labels, y_pred)
                 return mse_scores
         elif regression_task_metric == "KL_kde": 

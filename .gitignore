@@ -1,6 +1,9 @@
 __pycache__/*
 npy_files/*
 txt_files/*
+cleverhans/*
+facenet-pytorch/*
+opacus/*
 decoder_weights/*
 *.h5
 models/*
@@ -39,7 +42,6 @@ slurm_results/*
 *.csv
 *.pkl
 *.pt
-*.json
 *.p
 *.pth
 *.pyc  

@@ -1,0 +1,82 @@
+{
+	"train_config": {
+		"save_every_epoch": true,
+		"data_config": {
+			"name": "lstm_WT_new",
+			"prop": "Speed",
+			"value": "0.6",
+			"split": "victim",
+			"WT_config": {
+				"download_data": false,
+				"predicted_property": ["Power"],
+				"low_q": 20,
+				"high_q": 80
+			},
+			"feature_config": {
+				"rename": {
+					"Temperature_stats": {
+						"TimeStamp": "Timestamp",
+						"StationId": "TurbineID",
+						"wtc_HSGenTmp_mean": "GearboxBearingTempHSGenSide",
+						"wtc_HSRotTmp_mean": "GearboxBearingTempHSRotorSide",
+						"wtc_GeOilTmp_mean": "GearOilTemp",
+						"wtc_AmbieTmp_mean": "AmbientTemp"
+					},
+					"Alarm_logs": {
+						"TimeOn": "Timestamp",
+						"StationNr": "TurbineID"
+					},
+					"Power_stats": {
+						"TimeStamp": "Timestamp",
+						"StationId": "TurbineID",
+						"wtc_ActPower_stddev": "Power_SD",
+						"wtc_RawPower_mean": "RawPower",
+						"wtc_RawPower_stddev": "RawPower_SD",
+						"wtc_ActPower_mean": "Power"
+					},
+					"Operational_stats": {
+						"TimeStamp": "Timestamp",
+						"StationId": "TurbineID",
+						"wtc_PitcPosA_mean": "BladePitchA",
+						"wtc_PitcPosB_mean": "BladePitchB",
+						"wtc_PitcPosC_mean": "BladePitchC",
+						"wtc_PitcPosA_stddev": "BladePitchA_SD",
+						"wtc_PitcPosB_stddev": "BladePitchB_SD",
+						"wtc_PitcPosC_stddev": "BladePitchC_SD",
+						"wtc_MainSRpm_mean": "MainShaftRPM",
+						"wtc_MainSRpm_stddev": "MainShaftRPM_SD",
+						"wtc_AcWindSp_mean": "WindSpeed",
+						"wtc_AcWindSp_stddev": "WindSpeed_SD",
+						"wtc_ActualWindDirection_mean": "WindDirection",
+						"wtc_NacelPos_mean": "Yaw",
+						"wtc_NacelPos_stddev": "Yaw_SD",
+						"wtc_YawPos_mean": "SetYaw",
+						"wtc_YawPos_stddev": "SetYaw_SD",
+						"wtc_ReactPwr_mean": "RatedPower",
+						"wtc_TwrHumid_mean": "TowerHumidity"
+					},
+					"Daily_stats": {
+						"TimeStamp": "Timestamp",
+						"StationId": "TurbineID"
+					}
+				},
+				"cols": ["BladePitchA", "BladePitchB", "BladePitchC", "BladePitchA_SD", "BladePitchB_SD", "BladePitchC_SD", "MainShaftRPM", "MainShaftRPM_SD", "WindSpeed", "WindSpeed_SD", "WindDirection", "Yaw", "Yaw_SD", "SetYaw", "SetYaw_SD", "RatedPower", "TowerHumidity", "Power_SD", "RawPower", "RawPower_SD", "Power", "GearboxBearingTempHSGenSide", "GearboxBearingTempHSRotorSide", "GearOilTemp", "AmbientTemp"],
+				"predicted_property": "Power",
+				"WT_IDs": ["WT_01", "WT_02", "WT_03", "WT_04", "WT_05", "WT_06", "WT_07", "WT_08", "WT_09", "WT_10", "WT_11", "WT_12", "WT_13", "WT_14", "WT_15", "WT_16", "WT_17", "WT_18", "WT_19", "WT_20", "WT_21"],
+				"victim_WT_IDs": ["WT_01", "WT_02", "WT_03", "WT_04", "WT_05", "WT_06", "WT_07", "WT_08", "WT_09"],
+				"adv_WT_IDs": ["WT_10", "WT_11", "WT_12", "WT_13", "WT_14", "WT_15", "WT_16", "WT_17", "WT_18", "WT_19", "WT_20", "WT_21"],
+				"use_group_ids": true
+			}
+		},
+		"epochs": 100,
+		"learning_rate": 0.01,
+		"batch_size": 128
+	},
+	"values": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+	"black_box": {
+		"attack_type": ["loss_and_threshold"],
+		"ratios": [0.1, 0.9]
+	},
+	"victim_model_arch": "SimpleLSTM",
+	"adv_model_arch": "SimpleLSTM"
+}

@@ -201,7 +201,7 @@ class DatasetInformation(base.DatasetInformation):
         device = "cuda" if ch.cuda.is_available() else "cpu"
         model_arch = model_arch or self.default_model
         if model_arch == "SimpleLSTM":
-            model = SimpleLSTM(24, 64, 1, use_dropout=False).to(device)
+            model = SimpleLSTM(30, 64, 1, use_dropout=False).to(device)
         else:
             raise NotImplementedError("Model architecture not supported")
 
@@ -224,7 +224,7 @@ class _WindTurbinePower:
 
         if data_config.WT_config.download_data:
             preprocess_farm = utils.preprocess_data_farm(
-                                    #dataset="Scotland", 
+                                    dataset="Scotland", 
                                     base_dir=self.base_data_dir, 
                                     years=list(range(2023, 2025)), 
                                     rename=data_config.feature_config.rename
@@ -240,7 +240,7 @@ class _WindTurbinePower:
             if not data_config.WT_config.exclude_fault_data
             else f"{self.data_config.prop}_faults_excluded"
         )
-        data_path = os.path.join("/scratch/zl2da", suffix)
+        data_path = os.path.join("/scratch/ujx4ab", suffix)
         feature_path = os.path.join(data_path, "features_list.pkl")
 
         WT_IDs = data_config.feature_config.WT_IDs or []
@@ -248,8 +248,7 @@ class _WindTurbinePower:
         victim_WT_IDs = data_config.feature_config.victim_WT_IDs or []
         if not WT_IDs and (not adv_WT_IDs or not victim_WT_IDs): 
             assert False, "Error: Must specify WT_IDs or both adv_WT_IDs and victim_WT_IDs"
-        #print("what is data path = ", data_path)
-        #print("what is feature path = ", feature_path)
+
         need_process = not os.path.isdir(data_path) \
             or not os.path.isfile(feature_path) \
 
@@ -263,8 +262,6 @@ class _WindTurbinePower:
                 need_process = True
 
         if need_process:
-            #print("what is base data dir = ", self.base_data_dir)
-            #time.sleep(100)
             self.features = utils.process_data(
                 cols=self.cols,
                 BASE_DIR= self.base_data_dir,
@@ -433,12 +430,9 @@ class _WindTurbinePower:
             low_q = 20,
             high_q = 80,
          ):
-            df = meta_df.copy()
-            # TEMPORARY FIX - HARDCODE LOW Q AND HIGH Q
-            low_q = 20
-            high_q = 80
+            df = meta_df.copy()                        
             q_low, q_high = np.percentile(df[sensitive_col], [low_q, high_q])
-            
+
             if low_q == high_q: 
                 assert False, "low_q and high_q cannot be equal or records will have competing labels and default to 1 (double check)"
             df["Sensitive_bin"] = np.where(
@@ -477,18 +471,13 @@ class _WindTurbinePower:
         n_pos = int(round(n_samples * prop_ratio))
         n_neg = n_samples - n_pos
 
-        #print("prop ratio = ", prop_ratio)
-        #print("n pos = ", n_pos)
-        #print("n neg = ", n_neg)
-        #time.sleep(100)
-        
         out_idx = []
 
         for bin_val, n_sel in [(1, n_pos), (0, n_neg)]:
             df_bin = meta_df[meta_df["Sensitive_bin"] == bin_val]
             if n_sel == 0: # nothing to pick in this bin 
                 continue 
-                
+
             if n_sel > len(df_bin):
                 raise ValueError(
                     f"Requested {n_sel} samples from bin={bin_val}, but only "
@@ -698,9 +687,6 @@ class LSTMWindTurbineWrapper(base.CustomDatasetWrapper):
     def load_model(self, path: str, on_cpu: bool = False, model_arch: str = None) -> nn.Module:
         info_object = self.info_object
         model = info_object.get_model(cpu=on_cpu, model_arch=model_arch)
-        print("called =====================================")
-        print(model)
-        time.sleep(100)
         return load_model(model, path, on_cpu=on_cpu)
 
     # used in base and unique for each dataset wrapper

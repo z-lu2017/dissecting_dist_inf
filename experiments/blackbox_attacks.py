@@ -137,6 +137,8 @@ if __name__ == "__main__":
 
     # Get dataset wrapper
     ds_wrapper_class = get_dataset_wrapper(data_config.name)
+    #print("what is ds_wrapper_class = ", ds_wrapper_class)
+    #time.sleep(100)
 
     # Get dataset info object
     ds_info = get_dataset_information(data_config.name)()
@@ -157,6 +159,9 @@ if __name__ == "__main__":
 
     def single_evaluation(models_1_path=None, models_2_paths=None):
         # Load vic trained on alpha0
+        # initial model if no trained before
+        models_vic_1 = ds_vic_1.info_object.get_model()
+        '''
         models_vic_1 = ds_vic_1.get_models( # !!! value = 1.0, split = victim
             train_config,
             n_models=attack_config.num_victim_models,
@@ -165,6 +170,7 @@ if __name__ == "__main__":
             epochwise_version=attack_config.train_config.save_every_epoch,
             model_arch=attack_config.victim_model_arch,
             custom_models_path=models_1_path)
+        '''
         if type(models_vic_1) == tuple:
                 models_vic_1 = models_vic_1[0]
 
@@ -179,7 +185,7 @@ if __name__ == "__main__":
                 label_noise=train_config.label_noise,
                 epoch=attack_config.train_config.save_every_epoch)
             ds_adv_2 = ds_wrapper_class(data_config_adv_2)
-
+            '''
             models_vic_2 = ds_vic_2.get_models( # !!! value = 1.0, split = victim
                 train_config, 
                 n_models=attack_config.num_victim_models,
@@ -188,27 +194,34 @@ if __name__ == "__main__":
                 epochwise_version=attack_config.train_config.save_every_epoch,
                 model_arch=attack_config.victim_model_arch,
                 custom_models_path=models_2_paths[i] if models_2_paths else None)
+            '''
+            models_vic_2 = ds_vic_2.info_object.get_model()
             if type(models_vic_2) == tuple:
                 models_vic_2 = models_vic_2[0]
 
             # each try we used different set of adv models
             for t in range(attack_config.tries):
                 print("{}: trial {}".format(prop_value, t))
-                
+                '''
                 models_adv_1 = ds_adv_1.get_models( # !!! value = 1.0, split = adv
                     train_adv_config,
                     n_models=bb_attack_config.num_adv_models,
                     on_cpu=attack_config.on_cpu,
                     model_arch=attack_config.adv_model_arch,
                     target_epoch = attack_config.adv_target_epoch)
+                '''
+                models_adv_1 = ds_adv_1.info_object.get_model()
                 if type(models_adv_1) == tuple:
                     models_adv_1 = models_adv_1[0]
+                '''
                 models_adv_2 = ds_adv_2.get_models( # !!! value = 1.0, split = adv
                     train_adv_config,
                     n_models=bb_attack_config.num_adv_models,
                     on_cpu=attack_config.on_cpu,
                     model_arch=attack_config.adv_model_arch,
                     target_epoch = attack_config.adv_target_epoch)
+                '''
+                models_adv_2 = ds_adv_2.info_object.get_model()
                 if type(models_adv_2) == tuple:
                     models_adv_2 = models_adv_2[0]
 

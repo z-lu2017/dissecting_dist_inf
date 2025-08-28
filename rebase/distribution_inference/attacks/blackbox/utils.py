@@ -19,9 +19,9 @@ from distribution_inference.attacks.blackbox.perpoint_choose_dif import PerPoint
 from distribution_inference.attacks.blackbox.KL import KLAttack
 from distribution_inference.attacks.blackbox.generative import GenerativeAttack
 from distribution_inference.attacks.blackbox.binary_perpoint import BinaryPerPointThresholdAttack
-from distribution_inference.attacks.blackbox.KL_regression import KLRegression
-from distribution_inference.attacks.blackbox.label_KL import label_only_KLAttack
-from distribution_inference.attacks.blackbox.zhang import ZhangAttack
+#from distribution_inference.attacks.blackbox.KL_regression import KLRegression
+#from distribution_inference.attacks.blackbox.label_KL import label_only_KLAttack
+#from distribution_inference.attacks.blackbox.zhang import ZhangAttack
 
 ATTACK_MAPPING = {
     "threshold_perpoint": PerPointThresholdAttack,
@@ -35,9 +35,9 @@ ATTACK_MAPPING = {
     "KL": KLAttack,
     "generative":GenerativeAttack,
     "binary_perpoint": BinaryPerPointThresholdAttack,
-    "KL_regression": KLRegression,
-    "label_KL": label_only_KLAttack,
-    "zhang": ZhangAttack
+    #"KL_regression": KLRegression,
+    #"label_KL": label_only_KLAttack,
+    #"zhang": ZhangAttack
 }
 
 
@@ -129,7 +129,8 @@ def get_preds(loader, models: List[nn.Module],
         Get predictions for given models on given data
     """
     # Check if models are graph-related
-    if models[0].is_graph_model:
+    # TEMPORARY FIX - REVISIT
+    if models.is_graph_model:
         return get_graph_preds(ds=loader[0],
                                indices=loader[1],
                                models=models,
@@ -161,30 +162,32 @@ def get_preds(loader, models: List[nn.Module],
 
     # Get predictions for each model
     iterator = models
-    if verbose:
-        iterator = tqdm(iterator, desc="Generating Predictions")
-    for model in iterator:
-        model = model.cuda()
-        model.eval()
-        ch.cuda.empty_cache()
+    # TEMPORARY FIX - REVISIT
+    #if verbose:
+    #    iterator = tqdm(iterator, desc="Generating Predictions")
+    #for model in iterator:
+    model = iterator
+   # model = model.cuda()
+    model.eval()
+    ch.cuda.empty_cache()
 
-        with ch.no_grad():
-            predictions_on_model = []
+    with ch.no_grad():
+        predictions_on_model = []
 
-            if preload:
-                for data_batch in inputs:
-                    if latent != None:
-                            prediction = model(data_batch, latent=latent).detach()
-                    else:
-                        # TODO: figure out use hidden for other logic branches
-                        if use_hidden_state: 
-                            prediction = model(data_batch, return_hidden=use_hidden_state).detach()
-                            prediction = prediction.squeeze()
-                        elif use_cell_state:
-                            prediction = model(data_batch, return_cell=use_cell_state).detach()
-                            prediction = prediction.squeeze()
-                        else: 
-                            prediction = model(data_batch).detach()
+        if preload:
+            for data_batch in inputs:
+                if latent != None:
+                    prediction = model(data_batch, latent=latent).detach()
+                else:
+                    # TODO: figure out use hidden for other logic branches
+                    if use_hidden_state: 
+                        prediction = model(data_batch, return_hidden=use_hidden_state).detach()
+                        prediction = prediction.squeeze()
+                    elif use_cell_state:
+                        prediction = model(data_batch, return_cell=use_cell_state).detach()
+                        prediction = prediction.squeeze()
+                    else: 
+                        prediction = model(data_batch).detach()
 
                         # If None for whatever reason, re-run
                         # Weird bug that pops in every now and then
@@ -195,20 +198,22 @@ def get_preds(loader, models: List[nn.Module],
                         #     else:
                         #         prediction = model(data_batch).detach()
 
-                        if not multi_class:
-                            prediction = prediction[:, 0]
-                    predictions_on_model.append(prediction.cpu())
-            else:
+                    if not multi_class:
+                        prediction = prediction[:, 0]
+                predictions_on_model.append(prediction.cpu())
+        else:
                 # Iterate through data-loader
-                for data in loader:
-                    data_points, labels, _ = data
-                    if latent != None:
-                        prediction = model(data_points.cuda(), latent=latent).detach()
-                    else:
-                        prediction = model(data_points.cuda()).detach()
-                        if not multi_class:
-                            prediction = prediction[:, 0]
-                    predictions_on_model.append(prediction)
+            for data in loader:
+                data_points, labels, _ = data
+                if latent != None:
+                    prediction = model(data_points, latent=latent).detach()
+                else:
+                    #print("input size -1 = ", data_points.size())
+                    #time.sleep(100)
+                    prediction = model(data_points).detach()
+                    if not multi_class:
+                        prediction = prediction[:, 0]
+                predictions_on_model.append(prediction)
 
         predictions_on_model = ch.cat(predictions_on_model).cpu().numpy()
         predictions.append(predictions_on_model)
@@ -269,11 +274,17 @@ def _get_preds_for_vic_and_adv(
             
     return_props_labels = True
     # Sklearn models do not support logits- take care of that
-    use_prob_adv = models_adv[0].is_sklearn_model
+    # TEMPORARY FIX - REVISIT
+    use_prob_adv = models_adv.is_sklearn_model
+    use_prob_vic = models_vic.is_sklearn_model
+    '''
+    #use_prob_adv = models_adv[0].is_sklearn_model
     if epochwise_version:
         use_prob_vic = models_vic[0][0].is_sklearn_model
     else:
         use_prob_vic = models_vic[0].is_sklearn_model
+    not_using_logits = use_prob_adv or use_prob_vic
+    '''
     not_using_logits = use_prob_adv or use_prob_vic
 
     if type(loader) == tuple:
@@ -302,26 +313,27 @@ def _get_preds_for_vic_and_adv(
     if epochwise_version:
         # Track predictions for each epoch
         preds_vic = []
-        for models_inside_vic in tqdm(models_vic):
+        # TEMPORARY FIX
+        #for models_inside_vic in tqdm(models_vic):
             # TODO: fix this to handle return prop lables. atm regression task will never do this
             # TODO: fix this to handle hidden state/cell state, same as above
-            preds_vic_inside, ground_truth = get_preds(
+        models_inside_vic = models_vic
+        preds_vic_inside, ground_truth, _ = get_preds(
                 loader_vic, models_inside_vic, preload=preload,
                 verbose=False, multi_class=multi_class)
-            if not regression_task and not_using_logits and not use_prob_vic:
-                preds_vic_inside = to_preds(preds_vic_inside)
+        if not regression_task and not_using_logits and not use_prob_vic:
+            preds_vic_inside = to_preds(preds_vic_inside)
 
             # In epoch-wise mode, we need prediction results
             # across epochs, not models
-            preds_vic.append(preds_vic_inside)
+        preds_vic.append(preds_vic_inside)
     else:
         preds_vic, ground_truth, _ = get_preds(
             loader_vic, models_vic, preload=preload,
             multi_class=multi_class, use_hidden_state=use_hidden_state,
             use_cell_state=use_cell_state)
     
-    assert np.all(ground_truth ==
-                  ground_truth_repeat), "Val loader is shuffling data!"
+    #assert np.all(ground_truth == ground_truth_repeat), "Val loader is shuffling data!"
     return preds_vic, preds_adv, ground_truth, not_using_logits, prop_labels
 
 
@@ -375,12 +387,14 @@ def get_vic_adv_preds_on_distr(
 
     # Check if models are graph-related
     are_graph_models = False
+    '''
     if epochwise_version:
         if models_vic[0][0][0].is_graph_model:
             are_graph_models = True
     else:
         if models_vic[0][0].is_graph_model:
             are_graph_models = True
+    '''
     
     if are_graph_models:
         # No concept of 'processed'

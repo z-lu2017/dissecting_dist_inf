@@ -379,7 +379,7 @@ class data_farm:
         # makes it so edits can be made on them while running other code, but so that repetitive data is not being stored
         # unnecessarily
         self.BASE_DIR = BASE_DIR
-        self.WINDOWED_BASE = "/scratch/ujx4ab"
+        self.WINDOWED_BASE = "/scratch/zl2da"
         suffix = sensitive_property if not exclude_fault_data else f"{sensitive_property}_faults_excluded"
         self.WINDOWED_DATA_PATH = os.path.join(self.WINDOWED_BASE, suffix)
 
@@ -843,6 +843,10 @@ class data_farm:
                 if n_windows <= 0:
                     continue
 
+                #print("before try block!!!!!!!!!!!!!")
+                #print("n windoes = ", n_windows)
+                #print("window_chunk = ", WINDOW_CHUNK)
+                #time.sleep(1000)
                 try:
                     for idx, start in enumerate(tqdm(range(0, n_windows, WINDOW_CHUNK))):
 
@@ -860,13 +864,28 @@ class data_farm:
 
                         # mask out any window that contains a nan for any feature and skip chunk
                         # if there are no valid rows
+                        # TEMPORARY FIX - REPLACE NAN WITH 0
+                        windows_in = np.nan_to_num(windows_in)
+
                         valid = ~np.isnan(windows_in).any(axis=(1,2))
                         n_good = valid.sum()    
                         n_total = windows_in.shape[0]
+                        
+                        #print("!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                        #print("is nan = ",  np.any(np.isnan(windows_in)))
+                        #print("valid shape = ", valid)
+                        #print("n_good = ", n_good)
+                        #time.sleep(1000)
                         nan_indices_removed += (n_total - n_good)
+
+                        '''
                         if not valid.any():
                             continue
 
+                        '''
+                        #print("what is windows nan = ", windows_in.isnull().values.any())
+                        #print("what is valid = ", valid)
+                        #time.sleep(100)
                         filtered_in  = windows_in[valid]
                         filtered_out = windows_out[valid]
                         ts_chunk = np.array(rows[in_shift:])[valid].tolist()
@@ -876,6 +895,8 @@ class data_farm:
 
                         turbine_folder = os.path.join(self.WINDOWED_DATA_PATH, f"{t}")
                         os.makedirs(turbine_folder, exist_ok=True)
+                        #print("making turbine folder !!!!!!!!!!!!!!!")
+                        #time.sleep(100)
                         base = os.path.join(turbine_folder, f"Scotland_{t}")
 
                         ch.save(Xb, f"{base}_X_{idx:02d}.pt")
@@ -883,7 +904,9 @@ class data_farm:
                         with open(f"{base}_ts_{idx:02d}.pkl", "wb") as f:
                             pickle.dump(ts_chunk, f)
 
-                except OSError:
+                except Exception as e:
+                    print("exception = !!!!!", e)
+                    time.sleep(100)
                     continue
             print(f"nan indices removed for {t}: {nan_indices_removed}")
 

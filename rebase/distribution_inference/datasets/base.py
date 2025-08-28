@@ -318,8 +318,11 @@ class CustomDatasetWrapper:
                 model_paths = sorted(model_paths, key=lambda fname: int(fname.split('_', 1)[0]))[:train_config.adv_model_limit]
 
         if shuffle:
-            model_paths = np.random.permutation(model_paths)
+            model_paths = np.random.permutation(model_paths) 
         total_models = len(model_paths) if n_models is None else n_models
+        #print("what is model paths now = ", model_paths)
+        #print(len(model_paths))
+        
         log(f"Available models: {total_models}")
         print('-'*50)
         print("MODELS USED:")
